@@ -15,54 +15,45 @@ namespace TTT
 {
     class Batch
     {
-    public:
+    private:
         std::map<std::string, Agent> agents;
         std::map<std::string, Skill> skills;
         std::vector<Event> events;
         double time;
         double p_draw;
 
+    public:
         Batch(
-            std::vector<race_keys> composition = {},
-            std::vector<std::vector<double>> results = {},
-            double time = 0,
-            std::map<std::string, Agent> agents = {},
-            double p_draw = 0,
-            std::vector<race_weight> weights = {})
+            std::vector<race_keys> _composition = {},
+            std::vector<std::vector<double>> _results = {},
+            double _time = 0,
+            std::map<std::string, Agent> _agents = {},
+            double _p_draw = 0,
+            std::vector<race_weight> _weights = {})
         {
-
-            if (results.size() > 0 && composition.size() != results.size())
-            {
-                throw std::invalid_argument("(len(results)>0) and (len(composition)!= len(results))");
-            }
-            if (weights.size() > 0 && composition.size() != weights.size())
-            {
-                throw std::invalid_argument("(len(weights)>0) & (len(composition)!= len(weights))");
-            }
-
-            std::set<std::string> this_agents;
-            for (const race_keys &teams : composition)
+            this->input_ok(_composition, _results, _weights);
+            std::set<std::string> agents_set;
+            for (const race_keys &teams : _composition)
             {
                 for (const team_keys &team : teams)
                 {
                     for (const std::string &agent : team)
                     {
-                        this_agents.insert(agent);
+                        agents_set.insert(agent);
                     }
                 }
             }
 
             std::map<std::string, double> elapsed;
-            for (const std::string &agent : this_agents)
+            for (const std::string &agent : agents_set)
             {
                 elapsed[agent] = compute_elapsed(agents[agent].getLasttime(), time);
                 skills[agent] = Skill(agents[agent].receive(elapsed[agent]), Ninf, Ninf, elapsed[agent]);
             }
 
-            events = std::vector<Event>();
-            for (size_t i = 0; i < composition.size(); i++)
+            for (size_t i = 0; i < _composition.size(); i++)
             {
-                std::vector<std::vector<std::string>> team_composition = composition[i];
+                std::vector<std::vector<std::string>> team_composition = _composition[i];
                 std::vector<std::vector<Item>> items_list;
                 for (const std::vector<std::string> &team : team_composition)
                 {
@@ -76,8 +67,8 @@ namespace TTT
                 std::vector<Team> team_list;
                 for (size_t j = 0; j < team_composition.size(); j++)
                 {
-                    if (results.size() > 0){
-                        team_list.push_back(Team(items_list[j], results[i][j]));
+                    if (_results.size() > 0){
+                        team_list.push_back(Team(items_list[j], _results[i][j]));
                     }
                     else
                     {
@@ -86,9 +77,9 @@ namespace TTT
                 }
 
                 std::vector<std::vector<double>> w;
-                if (weights.size() > 0)
+                if (_weights.size() > 0)
                 {
-                    w = weights[i];
+                    w = _weights[i];
                 }
                 else
                 {
@@ -98,9 +89,24 @@ namespace TTT
             }
 
             this->time = time;
-            this->agents = agents;
+            this->agents = _agents;
             this->p_draw = p_draw;
             iteration();
+        }
+        
+        bool input_ok(
+            std::vector<race_keys> &composition,
+            std::vector<std::vector<double>> &results,
+            std::vector<race_weight> &weights){
+            if (results.size() > 0 && composition.size() != results.size())
+            {
+                throw std::invalid_argument("(len(results)>0) and (len(composition)!= len(results))");
+            }
+            if (weights.size() > 0 && composition.size() != weights.size())
+            {
+                throw std::invalid_argument("(len(weights)>0) & (len(composition)!= len(weights))");
+            }
+            return true;
         }
 
         int size()
@@ -123,13 +129,12 @@ namespace TTT
             return res;
         }
 
-        Player within_prior(Item item)
+        Player _within_prior(Item item)
         {
-            Player r = agents[item.name].getPlayer();
-            Gaussian posterior_item = posteriors()[item.name];
-            double mu = posterior_item.getMu() / item.likelihood.getMu();
-            double sigma = posterior_item.getSigma() / item.likelihood.getSigma();
-            return Player(Gaussian(mu, sigma), r.getBeta(), r.getGamma(), Ninf);
+            Player r = this->agents[item.name].getPlayer();
+            Gaussian posterior_item = this->posterior(item.name);
+            Gaussian _p = posterior_item / item.likelihood;
+            return Player(_p, r.getBeta(), r.getGamma(), Ninf);
         }
 
         std::vector<std::vector<Player>> within_priors(size_t event)
@@ -140,7 +145,7 @@ namespace TTT
                 std::vector<Player> team_players;
                 for (const Item &item : team.items)
                 {
-                    team_players.push_back(within_prior(item));
+                    team_players.push_back(this->_within_prior(item));
                 }
                 res.push_back(team_players);
             }
@@ -216,10 +221,29 @@ namespace TTT
             }
             iteration();
         }
+
+        std::map<std::string, Skill> getSkills() const {
+            return skills;
+        }
+
+        double getTime() const {
+            return time;
+        }
     };
 
     class History
     {
+    private:
+        std::vector<Batch> batches;
+        std::map<std::string, Agent> agents;
+        std::vector<double> times;
+        int size;
+        double mu;
+        double sigma;
+        double gamma;
+        double p_draw;
+        bool time;
+
     public:
         History(
             std::vector<std::vector<std::vector<std::string>>> composition,
@@ -248,20 +272,18 @@ namespace TTT
 
             size = composition.size();
             batches = {};
-            for (const std::vector<std::vector<std::string>> &teams : composition)
-            {
-                for (const std::vector<std::string> &team : teams)
-                {
-                    for (const std::string &a : team)
-                    {
-                        if (agents.find(a) == agents.end())
-                        {
-                            Player player(Gaussian(mu, sigma), beta, gamma, Ninf);
-                            if (priors.count(a) > 0)
-                            {
-                                player = priors[a];
+
+            for (const auto& teams : composition) {
+                for (const auto& team : teams) {
+                    for (const auto& a : team) {
+                        // Batchに存在しない場合には追加
+                        if (agents.count(a) == 0) {
+                            if (priors.count(a) != 0) {
+                                agents[a] = Agent(priors[a], Ninf, -inf);
+                            } else {
+                                // 今までで登場しない場合には既定値で初期化
+                                agents[a] = Agent(Player(Gaussian(mu, sigma), beta, gamma), Ninf, -inf);
                             }
-                            agents[a] = Agent(player, Ninf, -TTT::inf);
                         }
                     }
                 }
@@ -334,7 +356,7 @@ namespace TTT
                 }
                 Batch b(compositions, batch_results, t, agents, p_draw, batch_weights);
                 batches.push_back(b);
-                for (std::pair<std::string, Skill> a : b.skills)
+                for (std::pair<std::string, Skill> a : b.getSkills())
                 {
                     if (time)
                     {
@@ -356,7 +378,7 @@ namespace TTT
             clean(agents);
             for (int j = batches.size() - 2; j >= 0; --j)
             {
-                for (const std::pair<std::string, Skill> a : batches[j + 1].skills)
+                for (const std::pair<std::string, Skill> a : batches[j + 1].getSkills())
                 {
                     agents[a.first].setMessage(batches[j + 1].backward_prior_out(a.first));
                 }
@@ -369,7 +391,7 @@ namespace TTT
             clean(agents);
             for (int j = 1; j < batches.size(); ++j)
             {
-                for (auto a : batches[j - 1].skills)
+                for (auto a : batches[j - 1].getSkills())
                 {
                     agents[a.first].setMessage(batches[j - 1].forward_prior_out(a.first));
                 }
@@ -427,7 +449,7 @@ namespace TTT
                 for (const std::pair<std::string, Gaussian> &pair : b.posteriors())
                 {
                     std::string a = pair.first;
-                    double t_p = b.time;
+                    double t_p = b.getTime();
                     Gaussian posterior = b.posterior(a);
                     if (res.count(a))
                     {
@@ -456,16 +478,5 @@ namespace TTT
             return log_ev;
         }
         */
-
-    private:
-        int size;
-        std::vector<Batch> batches;
-        std::map<std::string, Agent> agents;
-        double mu;
-        double sigma;
-        double gamma;
-        std::vector<double> times;
-        double p_draw;
-        bool time;
     };
 }

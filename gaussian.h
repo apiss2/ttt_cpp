@@ -53,7 +53,7 @@ namespace TTT
             }
             else
             {
-                return INFINITY;
+                return TTT::inf;
             }
         }
 
@@ -65,7 +65,7 @@ namespace TTT
             }
             else
             {
-                return INFINITY;
+                return TTT::inf;
             }
         }
 
@@ -124,7 +124,7 @@ namespace TTT
             {
                 double new_tau = this->getTau() + M.getTau();
                 double new_pi = this->getPi() + M.getPi();
-                auto [mu, sigma] = TTT::mu_sigma(new_tau, new_pi);
+                auto [new_mu, new_sigma] = TTT::mu_sigma(new_tau, new_pi);
             }
             return Gaussian(new_mu, new_sigma);
         }
