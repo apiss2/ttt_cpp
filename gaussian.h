@@ -118,7 +118,7 @@ namespace TTT
         Gaussian() = default; // Default constructor
         Gaussian(const double _mu, const double _sigma)
         {
-            if (sigma >= 0.0)
+            if (_sigma >= 0.0)
             {
                 this->mu = _mu;
                 this->sigma = _sigma;

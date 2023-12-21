@@ -247,7 +247,7 @@ namespace TTT
                 for (int i = 0; i < games.size(); i++)
                 {
                     std::vector<double> inner_results;
-                    for (int j = games[i].size(); j > 0; j--)
+                    for (int j = games[i].size()-1; j >= 0; j--)
                     {
                         inner_results.push_back((double)j);
                     }
@@ -340,7 +340,7 @@ namespace TTT
                 double time;
                 if (this->use_specific_time)
                 {
-                    idx_to = times[order[idx_from]];
+                    idx_to = idx_from + 1;
                     time = times[order[idx_from]];
                 }
                 else

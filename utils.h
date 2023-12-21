@@ -215,7 +215,7 @@ namespace TTT
             double _beta = (margin - mu) / sigma;
             double v = (pdf(_alpha, 0, 1) - pdf(_beta, 0, 1)) / (cdf(_beta, 0, 1) - cdf(_alpha, 0, 1));
             double u = (_alpha * pdf(_alpha, 0, 1) - _beta * pdf(_beta, 0, 1)) / (cdf(_beta, 0, 1) - cdf(_alpha, 0, 1));
-            double w = -(u - v * v);
+            double w = -(u - std::pow(v, 2));
             return std::make_pair(v, w);
         }
         else

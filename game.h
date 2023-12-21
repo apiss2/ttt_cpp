@@ -411,8 +411,7 @@ namespace TTT
             double margin = grm.margins[0];
             bool tie = grm.tie[0];
 
-            double mu_trunc, sigma_trunc;
-            std::tie(mu_trunc, sigma_trunc) = trunc(diffmsg.mu, diffmsg.sigma, margin, tie);
+            auto[mu_trunc, sigma_trunc] = trunc(diffmsg.mu, diffmsg.sigma, margin, tie);
             double delta_div = diffmsg.sigma * diffmsg.sigma * mu_trunc - sigma_trunc * sigma_trunc * diffmsg.mu;
             double theta_div_pow2;
             if (diffmsg.sigma == sigma_trunc)
@@ -422,10 +421,12 @@ namespace TTT
             else
             {
                 double _div = diffmsg.sigma * diffmsg.sigma - sigma_trunc * sigma_trunc;
+                std::cout << "_div: " << _div << std::endl;
                 delta_div = delta_div / _div;
                 theta_div_pow2 = (sigma_trunc * sigma_trunc * diffmsg.sigma * diffmsg.sigma) / _div;
             }
 
+            std::cout << "delta_div: " << delta_div << std::endl;
             // チームごとに計算
             std::vector<std::vector<Gaussian>> res;
             for (int team_idx = 0; team_idx < grm.team_variables.size(); team_idx++)

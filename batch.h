@@ -255,13 +255,13 @@ namespace TTT
             return res
 
         def within_priors(self, event_idx: int) -> List[List[Player]]:  # event=0
-            result = list()
+            ret_list = list()
             for team in self.events[event_idx].teams:
-                inner_result = list()
+                inner_list = list()
                 for item in team.items:
                     inner_result.append(self.within_prior(item))
-                result.append(inner_result)
-            return result
+                ret_list.append(inner_list)
+            return ret_list
 
         def iteration(self, _from: int = 0):
             for event_idx in range(_from, len(self.events)):
@@ -365,20 +365,19 @@ namespace TTT
             Player res(_p, r.beta, r.gamma);
             return res;
         }
-
-        std::vector<std::vector<Player>> within_priors(const int event_idx) const
+        std::vector<std::vector<Player>> within_priors(int event_idx) const
         {
-            std::vector<std::vector<Player>> result;
+            std::vector<std::vector<Player>> ret_list;
             for (auto &team : events[event_idx].teams)
             {
-                std::vector<Player> inner_result;
+                std::vector<Player> inner_list;
                 for (auto &item : team.items)
                 {
-                    inner_result.push_back(within_prior(item));
+                    inner_list.push_back(within_prior(item));
                 }
-                result.push_back(inner_result);
+                ret_list.push_back(inner_list);
             }
-            return result;
+            return ret_list;
         }
         void iteration(int _from = 0)
         {
@@ -391,7 +390,6 @@ namespace TTT
                 {
                     for (int item_idx = 0; item_idx < events[event_idx].teams[team_idx].items.size(); item_idx++)
                     {
-                        std::cout << "event idx: " << event_idx << ", team idx: " << team_idx << ", item idx: " << item_idx << std::endl;
                         skills[events[event_idx].teams[team_idx].items[item_idx].name].likelihood = skills[events[event_idx].teams[team_idx].items[item_idx].name].likelihood / events[event_idx].teams[team_idx].items[item_idx].likelihood * game.likelihoods[team_idx][item_idx];
                         events[event_idx].teams[team_idx].items[item_idx].likelihood = game.likelihoods[team_idx][item_idx];
                     }
