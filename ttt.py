@@ -7,7 +7,7 @@
 """
 
 import math
-from typing import Tuple, Union, Self, List, Dict
+from typing import Tuple, Union, Self, List, Dict, Set
 
 __all__ = [
     "MU",
@@ -91,12 +91,11 @@ class Gaussian(object):
             else:
                 return Gaussian(M * self.mu, abs(M) * self.sigma)
         else:
-            if self.sigma == 0.0 or M.sigma == 0.0:
-                mu = (
-                    self.mu / ((self.sigma**2 / M.sigma**2) + 1)
-                    if self.sigma == 0.0
-                    else M.mu / ((M.sigma**2 / self.sigma**2) + 1)
-                )
+            if self.sigma == 0.0:
+                mu = self.mu / ((self.sigma**2 / M.sigma**2) + 1)
+                sigma = 0.0
+            elif M.sigma == 0.0:
+                mu = M.mu / ((M.sigma**2 / self.sigma**2) + 1)
                 sigma = 0.0
             else:
                 _tau, _pi = self.tau + M.tau, self.pi + M.pi
@@ -246,12 +245,8 @@ def gr_tuple(tup: List[float], threshold: float) -> bool:
 
 
 def sortperm(xs: List[float], reverse: bool = False) -> List[int]:
-    return [
-        i
-        for (v, i) in sorted(
-            ((v, i) for (i, v) in enumerate(xs)), key=lambda t: t[0], reverse=reverse
-        )
-    ]
+    sorted_list = sorted(((v, i) for i, v in enumerate(xs)), key=lambda t: t[0], reverse=reverse)
+    return [i for v, i in sorted_list]
 
 
 def podium(xs: List[float]) -> List[int]:
@@ -281,16 +276,8 @@ class Player(object):
     def performance(self) -> Gaussian:
         return Gaussian(self.prior.mu, math.sqrt(self.prior.sigma**2 + self.beta**2))
 
-    def __repr__(self) -> str:
-        return "Player(Gaussian(mu=%.3f, sigma=%.3f), beta=%.3f, gamma=%.3f)" % (
-            self.prior.mu,
-            self.prior.sigma,
-            self.beta,
-            self.gamma,
-        )
 
-
-class team_variable(object):
+class TeamVariable(object):
     def __init__(
         self,
         prior: Gaussian = Ninf,
@@ -325,44 +312,14 @@ class team_variable(object):
         return self.likelihood_win * self.likelihood_lose * self.likelihood_draw
 
 
-def performance(team: List[Player], weights: List[float]) -> Gaussian:
+def team_performance(team: List[Player], weights: List[float]) -> Gaussian:
     res = N00
     for player, w in zip(team, weights):
         res += player.performance() * w
     return res
 
 
-class draw_messages(object):
-    def __init__(
-        self,
-        prior: Gaussian = Ninf,
-        prior_team: Gaussian = Ninf,
-        likelihood_lose: Gaussian = Ninf,
-        likelihood_win: Gaussian = Ninf,
-    ):
-        self.prior = prior
-        self.prior_team = prior_team
-        self.likelihood_lose = likelihood_lose
-        self.likelihood_win = likelihood_win
-
-    @property
-    def p(self):
-        return self.prior_team * self.likelihood_lose * self.likelihood_win
-
-    @property
-    def posterior_win(self):
-        return self.prior_team * self.likelihood_lose
-
-    @property
-    def posterior_lose(self):
-        return self.prior_team * self.likelihood_win
-
-    @property
-    def likelihood(self):
-        return self.likelihood_win * self.likelihood_lose
-
-
-class diff_messages(object):
+class DiffMessage(object):
     def __init__(self, prior: Gaussian = Ninf, likelihood: Gaussian = Ninf):
         self.prior = prior
         self.likelihood = likelihood
@@ -372,159 +329,183 @@ class diff_messages(object):
         return self.prior * self.likelihood
 
 
+class GraphicalModel:
+    def __init__(self, teams: List[List[Player]], _result: List[float], weights: List[float], p_draw: float) -> None:
+        self.evidence: float = 1.0
+        self.result: List[float] = self.init_result(_result, teams)
+        self.order: List[int] = sortperm(self.result, reverse=True)
+        self.team_variables: List[TeamVariable] = self.init_team_variables(self.order, teams, weights)
+        self.diff_messages: List[DiffMessage] = self.init_diff_messages(teams)
+        self.tie: List[bool] = self.init_tie()
+        self.margins: List[float] = self.init_margin(p_draw)
+
+    def partial_evidence(self, e: int) -> None:
+        mu, sigma = self.diff_messages[e].prior.mu, self.diff_messages[e].prior.sigma
+        if self.tie[e]:
+            _mul = cdf(self.margins[e], mu, sigma) - cdf(-self.margins[e], mu, sigma)
+        else:
+            _mul = 1 - cdf(self.margins[e], mu, sigma)
+        self.evidence = self.evidence * _mul
+
+    def update_from_front(self, step: Tuple[float, float], i: int):
+        for e in range(len(self.diff_messages) - 1):
+            # 更新_1
+            self.diff_messages[e].prior = self.team_variables[e].posterior_win - self.team_variables[e + 1].posterior_lose
+            if i == 0:
+                # このクラスのevidence値を更新
+                self.partial_evidence(self.diff_messages, self.margins, self.tie, e)
+            # 更新_2
+            self.diff_messages[e].likelihood = approx(self.diff_messages[e].prior, self.margins[e], self.tie[e]) / self.diff_messages[e].prior
+            likelihood_lose = self.team_variables[e].posterior_win - self.diff_messages[e].likelihood
+            step = max_tuple(step, self.team_variables[e + 1].likelihood_lose.delta(likelihood_lose))
+            # 更新_3
+            self.team_variables[e + 1].likelihood_lose = likelihood_lose
+
+    def update_from_back(self, step: Tuple[float, float], i: int):
+        # 勝利側の値を更新
+        for e in range(len(self.diff_messages) - 1, 0, -1):
+            # 更新_1
+            self.diff_messages[e].prior = self.team_variables[e].posterior_win - self.team_variables[e + 1].posterior_lose
+            if (i == 0) and (e == len(self.diff_messages) - 1):
+                # このクラスのevidence値を更新
+                self.partial_evidence(self.diff_messages, self.margins, self.tie, e)
+            # 更新_2
+            self.diff_messages[e].likelihood = approx(self.diff_messages[e].prior, self.margins[e], self.tie[e]) / self.diff_messages[e].prior
+            likelihood_win = self.team_variables[e + 1].posterior_lose + self.diff_messages[e].likelihood
+            step = max_tuple(step, self.team_variables[e].likelihood_win.delta(likelihood_win))
+            # 更新_3
+            self.team_variables[e].likelihood_win = likelihood_win
+   
+    def init_result(self, result: List[float], teams: List[List[Player]]):
+        if len(result) > 0:
+            return result
+        else:
+            result = [i for i in range(len(teams) -1, -1, -1)]
+
+    def init_team_variables(self, teams: List[List[Player]], weights) -> List[TeamVariable]:
+        ret: List[TeamVariable] = list()
+        for team_idx in range(len(teams)):
+            idx = self.order[team_idx]
+            _p = team_performance(teams[idx], weights)
+            ret.append(TeamVariable(_p, Ninf, Ninf, Ninf))
+        return ret
+   
+    def init_diff_messages(self, teams: List[List[Player]]) -> List[DiffMessage]:
+        ret: List[DiffMessage] = list()
+        for idx in range(len(teams) > 1):
+            ret.append(DiffMessage(teams[idx].prior - teams[idx + 1].prior, Ninf))
+        return ret
+   
+    def init_tie(self) -> List[bool]:
+        ret: List[bool] = list()
+        for e in range(len(self.diff_messages)):
+            ret.append(self.result[self.order[e]] == self.result[self.order[e + 1]])
+        return ret
+   
+    def init_margin(self, p_draw, teams: List[List[Player]]):
+        ret: List[float] = list()
+        for idx in range(len(self.diff_messages)):
+            if p_draw == 0.0:
+                ret.append(0.0)
+            else:
+                _sum1 = sum([a.beta**2 for a in teams[self.order[idx]]])
+                _sum2 = sum([a.beta**2 for a in teams[self.order[idx + 1]]])
+                _m = compute_margin(p_draw, math.sqrt(_sum1 + _sum2))
+                ret.append(_m)
+        return ret
+
+
 class Game(object):
     def __init__(
         self,
         teams: List[List[Player]],
-        result: List[List[Union[float, int]]] = [],
+        result: List[float] = [],
         p_draw: float = 0.0,
-        weights: List[List[float]] = [],
+        weights: List[float] = [],
     ):
-        if len(result) and (len(teams) != len(result)):
-            raise ValueError("len(result) and (len(teams) != len(result))")
-        if (0.0 > p_draw) or (1.0 <= p_draw):
-            raise ValueError("0.0 <= proba < 1.0")
-        if (p_draw == 0.0) and (len(result) > 0) and (len(set(result)) != len(result)):
-            raise ValueError(
-                "(p_draw == 0.0) and (len(result)>0) and (len(set(result))!=len(result))"
-            )
-        if (len(weights) > 0) and (len(teams) != len(weights)):
-            raise ValueError("(len(weights)>0) & (len(teams)!= len(weights))")
-        if (len(weights) > 0) and (
-            any([len(team) != len(weight) for (team, weight) in zip(teams, weights)])
-        ):
-            ValueError("(len(weights)>0) & exists i (len(teams[i]) != len(weights[i])")
-
-        self.teams = teams
-        self.result = result
-        self.p_draw = p_draw
-        if not weights:
-            weights = [[1.0 for p in t] for t in teams]
-        self.weights = weights
-        self.likelihoods = []
-        self.evidence = 0.0
+        self.check_inputs(result, teams, p_draw, weights)
+        self.teams: List[List[Player]] = teams
+        self.result: List[float] = result
+        self.p_draw: float = p_draw
+        self.weights: List[float] = weights
+        self.likelihoods: List[List[Gaussian]] = []
+        self.evidence: float = 0.0
         self.compute_likelihoods()
 
-    def __len__(self) -> int:
-        return len(self.teams)
-
-    def size(self) -> List[int]:
-        return [len(team) for team in self.teams]
+    def check_inputs(self, result, teams, p_draw, weights):
+        if len(result):
+            assert len(teams) == len(result)
+        assert 0 < p_draw < 1
+        for team in teams:
+            assert len(team) == len(weights)
 
     def performance(self, i: int) -> Gaussian:
-        return performance(self.teams[i], self.weights[i])
+        return team_performance(self.teams[i], self.weights)
 
-    def partial_evidence(
-        self, d: List[diff_messages], margin: Dict[float], tie: List[bool], e: int
-    ) -> None:
-        mu, sigma = d[e].prior.mu, d[e].prior.sigma
-        self.evidence *= (
-            cdf(margin[e], mu, sigma) - cdf(-margin[e], mu, sigma)
-            if tie[e]
-            else 1 - cdf(margin[e], mu, sigma)
-        )
+    def likelihood_analitico(self) -> List[List[Gaussian]]:
+        grm = GraphicalModel(self.teams, self.result, self.weights)
+        grm.partial_evidence(0)
+        diffmsg = grm.diff_messages[0].prior
+        margin = grm.margins[0]
+        tie = grm.tie[0]
 
-    def graphical_model(
-        self,
-    ) -> Tuple[
-        List[int], List[team_variable], List[diff_messages], List[bool], List[float]
-    ]:
-        g = self
-        r = (
-            g.result
-            if len(g.result) > 0
-            else [i for i in range(len(g.teams) - 1, -1, -1)]
-        )
-        o = sortperm(r, reverse=True)
-        t = [
-            team_variable(g.performance(o[e]), Ninf, Ninf, Ninf) for e in range(len(g))
-        ]
-        d = [
-            diff_messages(t[e].prior - t[e + 1].prior, Ninf) for e in range(len(g) - 1)
-        ]
-
-        tie = [r[o[e]] == r[o[e + 1]] for e in range(len(d))]
-        margin = [
-            0.0
-            if g.p_draw == 0.0
-            else compute_margin(
-                g.p_draw,
-                math.sqrt(
-                    sum([a.beta**2 for a in g.teams[o[e]]])
-                    + sum([a.beta**2 for a in g.teams[o[e + 1]]])
-                ),
-            )
-            for e in range(len(d))
-        ]
-        g.evidence = 1.0
-        return o, t, d, tie, margin
-
-    def likelihood_analitico(self) -> Tuple[List[Gaussian], List[Gaussian]]:
-        g = self
-        o, t, d, tie, margin = g.graphical_model()
-        g.partial_evidence(d, margin, tie, 0)
-        d = d[0].prior
-        
-        mu_trunc, sigma_trunc = trunc(d.mu, d.sigma, margin[0], tie[0])
-        
-        if d.sigma == sigma_trunc:
-            delta_div = d.sigma**2 * mu_trunc - sigma_trunc**2 * d.mu
+        mu_trunc, sigma_trunc = trunc(diffmsg.mu, diffmsg.sigma, margin, tie)
+        delta_div = diffmsg.sigma**2 * mu_trunc - sigma_trunc**2 * diffmsg.mu
+        if diffmsg.sigma == sigma_trunc:
             theta_div_pow2 = inf
         else:
-            delta_div = (d.sigma**2 * mu_trunc - sigma_trunc**2 * d.mu) / (d.sigma**2 - sigma_trunc**2)
-            theta_div_pow2 = (sigma_trunc**2 * d.sigma**2) / (d.sigma**2 - sigma_trunc**2)
-        
+            _div = diffmsg.sigma**2 - sigma_trunc**2
+            delta_div = delta_div / _div
+            theta_div_pow2 = (sigma_trunc**2 * diffmsg.sigma**2) / _div
+
+        # チームごとに計算
         res = []
-        for i in range(len(t)):
+        for team_idx in range(len(grm.team_variables)):
             team = []
-            for j in range(len(g.teams[o[i]])):
-                if d.sigma == sigma_trunc:
+            for j in range(len(self.teams[grm.order[team_idx]])):
+                if diffmsg.sigma == sigma_trunc:
                     mu = 0.0
                 else:
-                    if i == 1:
-                        mu = g.teams[o[i]][j].prior.mu - (delta_div - d.mu)
+                    _mu = self.teams[grm.order[team_idx]][j].prior.mu
+                    _d = delta_div - diffmsg.mu
+                    if team_idx == 1:
+                        mu = _mu - _d
                     else:
-                        mu = g.teams[o[i]][j].prior.mu + (delta_div - d.mu)
-                sigma_analitico = math.sqrt(theta_div_pow2 + d.sigma**2 - g.teams[o[i]][j].prior.sigma ** 2)
+                        mu = _mu + _d
+                _team_sigma = self.teams[grm.order[team_idx]][j].prior.sigma ** 2
+                sigma_analitico = math.sqrt(theta_div_pow2 + diffmsg.sigma**2 - _team_sigma)
                 team.append(Gaussian(mu, sigma_analitico))
             res.append(team)
-            
-        if o[0] < o[1]:
-            return (res[0], res[1])
+        # evidence更新
+        self.evidence = grm.evidence
+        # 大小関係確認して返却
+        if grm.order[0] < grm.order[1]:
+            return [res[0], res[1]]
         else:
-            return (res[1], res[0])
+            return [res[1], res[0]]
 
     def likelihood_teams(self) -> List[Gaussian]:
-        g = self
-        o, t, d, tie, margin = g.graphical_model()
+        grm = GraphicalModel(self.teams, self.result, self.weights)
         step = (inf, inf)
         i = 0
         while gr_tuple(step, 1e-6) and (i < 10):
             step = (0.0, 0.0)
-            for e in range(len(d) - 1):
-                d[e].prior = t[e].posterior_win - t[e + 1].posterior_lose
-                if i == 0:
-                    g.partial_evidence(d, margin, tie, e)
-                d[e].likelihood = approx(d[e].prior, margin[e], tie[e]) / d[e].prior
-                likelihood_lose = t[e].posterior_win - d[e].likelihood
-                step = max_tuple(step, t[e + 1].likelihood_lose.delta(likelihood_lose))
-                t[e + 1].likelihood_lose = likelihood_lose
-            for e in range(len(d) - 1, 0, -1):
-                d[e].prior = t[e].posterior_win - t[e + 1].posterior_lose
-                if (i == 0) and (e == len(d) - 1):
-                    g.partial_evidence(d, margin, tie, e)
-                d[e].likelihood = approx(d[e].prior, margin[e], tie[e]) / d[e].prior
-                likelihood_win = t[e + 1].posterior_lose + d[e].likelihood
-                step = max_tuple(step, t[e].likelihood_win.delta(likelihood_win))
-                t[e].likelihood_win = likelihood_win
+            grm.update_from_front(step, i)
+            grm.update_from_back(step, i)
             i += 1
-        if len(d) == 1:
-            g.partial_evidence(d, margin, tie, 0)
-            d[0].prior = t[0].posterior_win - t[1].posterior_lose
-            d[0].likelihood = approx(d[0].prior, margin[0], tie[0]) / d[0].prior
-        t[0].likelihood_win = t[1].posterior_lose + d[0].likelihood
-        t[-1].likelihood_lose = t[-2].posterior_win - d[-1].likelihood
-        return [t[o[e]].likelihood for e in range(len(t))]
+
+        if len(grm.diff_messages) == 1:
+            # evidence値を更新
+            grm.partial_evidence(0)
+            # diff_messages更新
+            grm.diff_messages[0].prior = grm.team_variables[0].posterior_win - grm.team_variables[1].posterior_lose
+            grm.diff_messages[0].likelihood = approx(grm.diff_messages[0].prior, grm.margins[0], grm.tie[0]) / grm.diff_messages[0].prior
+
+        # Gameクラスのevidenceを更新
+        self.evidence = grm.evidence
+        grm.team_variables[0].likelihood_win = grm.team_variables[1].posterior_lose + grm.diff_messages[0].likelihood
+        grm.team_variables[-1].likelihood_lose = grm.team_variables[-2].posterior_win - grm.diff_messages[-1].likelihood
+        return [grm.team_variables[grm.order[e]].likelihood for e in range(len(grm.team_variables))]
 
     def hasNotOneWeights(self) -> bool:
         for t in self.weights:
@@ -534,28 +515,21 @@ class Game(object):
         return False
 
     def compute_likelihoods(self) -> None:
-        if ((len(self.teams) > 2) or self.hasNotOneWeights()):
+        if (len(self.teams) > 2) or self.hasNotOneWeights():
             m_t_ft = self.likelihood_teams()
-            self.likelihoods = list()
-            for e in range(len(self)):
+            self.likelihoods: List[List[Gaussian]] = list()
+            for e in range(len(self.teams)):
+                likelihood_e = list()
                 for i in range(len(self.teams[e])):
-                    if self.weights[e][i] != 0.0:
-                        lh = (1 / self.weights[e][i])
+                    if self.weights[i] != 0.0:
+                        _lh = 1 / self.weights[i]
                     else:
-                        lh = inf
-                    lh = lh * (m_t_ft[e] - self.performance(e).exclude(self.teams[e][i].prior * self.weights[e][i]))
-                    self.likelihoods.append(lh)
+                        _lh = inf
+                    lh: Gaussian = _lh * (m_t_ft[e] - self.performance(e).exclude(self.teams[e][i].prior * self.weights[i]))
+                    likelihood_e.append(lh)
+                self.likelihoods.append(likelihood_e)
         else:
             self.likelihoods = self.likelihood_analitico()
-
-    def posteriors(self) -> List[List[Gaussian]]:
-        return [
-            [
-                self.likelihoods[e][i] * self.teams[e][i].prior
-                for i in range(len(self.teams[e]))
-            ]
-            for e in range(len(self))
-        ]
 
 
 class Skill(object):
@@ -586,7 +560,7 @@ class Agent(object):
         return res
 
 
-def clean(agents: List[Agent], last_time: bool = False):
+def clean(agents: Dict[str, Agent], last_time: bool = False):
     for a in agents:
         agents[a].message = Ninf
         if last_time:
@@ -600,7 +574,7 @@ class Item(object):
 
 
 class Team(object):
-    def __init__(self, items: List[Item], output: Union[int, float]):
+    def __init__(self, items: List[Item], output: float):
         self.items = items
         self.output = output
 
@@ -611,89 +585,70 @@ class Event(object):
         self.evidence = evidence
         self.weights = weights
 
-    def __repr__(self) -> str:
-        return "Event({}, {})".format(self.names, self.result)
-
     @property
-    def names(self) -> List[str]:
-        return [[item.name for item in team.items] for team in self.teams]
-
-    @property
-    def result(self) -> List[Union[int, float]]:
+    def result(self) -> List[float]:
         return [team.output for team in self.teams]
 
 
-def get_composition(events: List[Event]) -> List[List[List[str]]]:
-    return [[[it.name for it in t.items] for t in e.teams] for e in events]
-
-
-def get_results(events: List[Event]) -> List[List[Union[int, float]]]:
-    return [[t.output for t in e.teams] for e in events]
-
-
-def compute_elapsed(last_time: float, actual_time: float) -> Union[int, float]:
-    return (
-        0
-        if last_time == -inf
-        else (1 if last_time == inf else (actual_time - last_time))
-    )
+def compute_elapsed(last_time: float, actual_time: float) -> float:
+    if last_time == -inf:
+        return 0
+    else:
+        if last_time == inf:
+            return 1
+        else:
+            return actual_time - last_time
 
 
 class Batch(object):
     def __init__(
         self,
-        composition: List[List[List[str]]],
-        results: List[List[Union[int, float]]] = [],
-        time: float = 0,
-        agents: Dict[str, Agent] = dict(),
-        p_draw: float = 0.0,
-        weights: List[float] = [],
+        games: List[List[List[str]]],
+        results: List[List[float]],
+        time: float,
+        agents: Dict[str, Agent],
+        p_draw: float,
+        weights: List[float],
     ):
-        if (len(results) > 0) and (len(composition) != len(results)):
-            raise ValueError("(len(results)>0) and (len(composition)!= len(results))")
-        if (len(weights) > 0) and (len(composition) != len(weights)):
-            raise ValueError("(len(weights)>0) & (len(composition)!= len(weights))")
-
-        this_agents = set([a for teams in composition for team in teams for a in team])
-        elapsed = dict(
-            [(a, compute_elapsed(agents[a].last_time, time)) for a in this_agents]
-        )
-
-        self.skills = dict(
-            [
-                (a, Skill(agents[a].receive(elapsed[a]), Ninf, Ninf, elapsed[a]))
-                for a in this_agents
-            ]
-        )
-        self.events = [
-            Event(
-                [
-                    Team(
-                        [
-                            Item(composition[e][t][a], Ninf)
-                            for a in range(len(composition[e][t]))
-                        ],
-                        results[e][t]
-                        if len(results) > 0
-                        else len(composition[e]) - t - 1,
-                    )
-                    for t in range(len(composition[e]))
-                ],
-                0.0,
-                weights if not weights else weights[e],
-            )
-            for e in range(len(composition))
-        ]
-        self.time = time
         self.agents = agents
+        self.time = time
         self.p_draw = p_draw
+        self.weights = weights
+        batch_unique_agents = self._get_agent_set(games)
+        self._init_skills(batch_unique_agents)
+        self._init_events(results)
         self.iteration()
 
-    def __repr__(self) -> str:
-        return "Batch(time={}, events={})".format(self.time, self.events)
+    def _get_agent_set(self, games: List[List[List[str]]]):
+        this_batch_agents = set()
+        for teams in games:
+            for team in teams:
+                for agent in team:
+                    this_batch_agents.add(agent)
+        return this_batch_agents
 
-    def __len__(self) -> int:
-        return len(self.events)
+    def _init_skills(self, agents: Set[str]):
+        self.skills: Dict[str, Skill] = dict()
+        for a in agents:
+            elapsed = compute_elapsed(self.agents[a].last_time, self.time)
+            self.skills[a] = Skill(self.agents[a].receive(elapsed), Ninf, Ninf, elapsed)
+
+    def _init_events(self, games, results):
+        self.events: List[Event] = list()
+        for event_idx in range(len(games)):
+            event_teams = []
+            for team_idx in range(len(games[event_idx])):
+                team_items = []
+                for a in range(len(games[event_idx][team_idx])):
+                    team_items.append(Item(games[event_idx][team_idx][a], Ninf))
+                if len(results) > 0:
+                    team_result = results[event_idx][team_idx]
+                else:
+                    team_result = len(games[event_idx]) - team_idx - 1
+                team = Team(team_items, team_result)
+                event_teams.append(team)
+            event = Event(event_teams, 0.0, self.weights)
+            self.events.append(event)
 
     def posterior(self, agent: Agent) -> Gaussian:
         return (
@@ -702,204 +657,159 @@ class Batch(object):
             * self.skills[agent].forward
         )
 
-    def posteriors(self) -> Dict[str, Gaussian]:
-        res = dict()
-        for a in self.skills:
-            res[a] = self.posterior(a)
-        return res
-
     def within_prior(self, item: Item) -> Player:
         r = self.agents[item.name].player
         mu, sigma = self.posterior(item.name) / item.likelihood
         res = Player(Gaussian(mu, sigma), r.beta, r.gamma)
         return res
 
-    def within_priors(self, event: int) -> List[List[Player]]:  # event=0
-        return [
-            [self.within_prior(item) for item in team.items]
-            for team in self.events[event].teams
-        ]
+    def within_priors(self, event_idx: int) -> List[List[Player]]:  # event=0
+        result = list()
+        for team in self.events[event_idx].teams:
+            inner_result = list()
+            for item in team.items:
+                inner_result.append(self.within_prior(item))
+            result.append(inner_result)
+        return result
 
-    def iteration(self, _from: int = 0):  # self=b
-        for e in range(_from, len(self)):  # e=0
-            teams = self.within_priors(e)
-            result = self.events[e].result
-            weights = self.events[e].weights
-            g = Game(teams, result, self.p_draw, weights)
-            for t, team in enumerate(self.events[e].teams):
-                for i, item in enumerate(team.items):
+    def iteration(self, _from: int = 0):
+        for event_idx in range(_from, len(self.events)):
+            teams = self.within_priors(event_idx)
+            result = self.events[event_idx].result
+            game = Game(teams, result, self.p_draw, self.weights)
+            for team_idx, team in enumerate(self.events[event_idx].teams):
+                for item_idx, item in enumerate(team.items):
                     self.skills[item.name].likelihood = (
                         self.skills[item.name].likelihood / item.likelihood
-                    ) * g.likelihoods[t][i]
-                    item.likelihood = g.likelihoods[t][i]
-            self.events[e].evidence = g.evidence
-
-    def convergence(self, epsilon: float = 1e-6, iterations: int = 20) -> int:
-        step, i = (inf, inf), 0
-        while gr_tuple(step, epsilon) and (i < iterations):
-            old = self.posteriors().copy()
-            self.iteration()
-            step = dict_diff(old, self.posteriors())
-            i += 1
-        return i
+                    ) * game.likelihoods[team_idx][item_idx]
+                    item.likelihood = game.likelihoods[team_idx][item_idx]
+            self.events[event_idx].evidence = game.evidence
 
     def forward_prior_out(self, agent: Agent) -> Gaussian:
         return self.skills[agent].forward * self.skills[agent].likelihood
-
-    def backward_prior_out(self, agent: Agent) -> Gaussian:
-        N = self.skills[agent].likelihood * self.skills[agent].backward
-        return N.forget(self.agents[agent].player.gamma, self.skills[agent].elapsed)
-
-    def new_backward_info(self):
-        for a in self.skills:
-            self.skills[a].backward = self.agents[a].message
-        return self.iteration()
-
-    def new_forward_info(self):
-        for a in self.skills:
-            self.skills[a].forward = self.agents[a].receive(self.skills[a].elapsed)
-        return self.iteration()
 
 
 class History(object):
     def __init__(
         self,
-        composition: List[List[List[str]]],
-        results: List[List[Union[int, float]]] = [],
+        games: List[List[List[str]]],
+        results: List[List[float]] = [],
+        weights: List[float] = [],
         times: List[float] = [],
-        priors: Dict[str, Player] = dict(),
         mu: float = MU,
         sigma: float = SIGMA,
         beta: float = BETA,
         gamma: float = GAMMA,
         p_draw: float = P_DRAW,
-        weights: List[float] = [],
     ):
-        if (len(results) > 0) and (len(composition) != len(results)):
-            raise ValueError("len(composition) != len(results)")
-        if (len(times) > 0) and (len(composition) != len(times)):
-            raise ValueError(" len(times) error ")
-        if (len(weights) > 0) and (len(composition) != len(weights)):
-            raise ValueError(
-                "(length(weights) > 0) & (length(composition) != length(weights))"
-            )
-
-        self.size = len(composition)
-        self.batches: List[Batch] = []
-        self.agents = dict(
-            [
-                (
-                    a,
-                    Agent(
-                        priors[a]
-                        if a in priors
-                        else Player(Gaussian(mu, sigma), beta, gamma),
-                        Ninf,
-                        -inf,
-                    ),
-                )
-                for a in set(
-                    [a for teams in composition for team in teams for a in team]
-                )
-            ]
-        )
+        self.batches: List[Batch] = list()
+        self.agents: Dict[str, Agent] = dict()
         self.mu = mu
         self.sigma = sigma
+        self.beta = beta
         self.gamma = gamma
         self.p_draw = p_draw
-        self.time = len(times) > 0
-        self.trueskill(composition, results, times, weights)
+        self.results = list()
+        assert 0 < p_draw < 1
+        self.use_specific_time = len(times) > 0
 
-    def __repr__(self) -> str:
-        return "History(Events={}, Batches={}, Agents={})".format(
-            self.size, len(self.batches), len(self.agents)
-        )
+        self._init_games(games)
+        self._init_results(games, results)
+        self._init_times(games, times)
+        self._init_weights(games, weights)
+        self._init_agents(games)
 
-    def __len__(self) -> int:
-        return self.size
+    def _init_games(self, games: List[List[List[str]]]):
+        # 一番内側のリスト(team)が全て同じ長さであることを確認
+        team_len = len(games[0][0])
+        for game in games:
+            for team in game:
+                if len(team) != team_len:
+                    raise ValueError("len(team) != len(game[0])")
+        self.games = games
 
-    def trueskill(
-        self,
-        composition: List[List[List[str]]],
-        results: List[List[Union[int, float]]],
-        times: List[float],
-        weights: List[float],
-    ):
-        o = sortperm(times) if len(times) > 0 else [i for i in range(len(composition))]
-        i = 0
-        while i < len(self):
-            j, t = i + 1, i + 1 if len(times) == 0 else times[o[i]]
-            while (len(times) > 0) and (j < len(self)) and (times[o[j]] == t):
-                j += 1
-            if len(results) > 0:
-                b = Batch(
-                    [composition[k] for k in o[i:j]],
-                    [results[k] for k in o[i:j]],
-                    t,
-                    self.agents,
-                    self.p_draw,
-                    weights if not weights else [weights[k] for k in o[i:j]],
-                )
+    def _init_results(self, games: List[List[List[str]]], results: List[List[float]]):
+        # resultのチェックと初期化
+        if (len(results) > 0):
+            assert len(games) == len(results)
+        else:
+            # 結果がない場合には、ゲーム数分の結果を降順で作成
+            results = [[i for i in range(len(g))][::-1] for g in games]
+        self.results = results
+        
+    def _init_times(self, games: List[List[List[str]]], times: List[float]):
+        if len(times) > 0:
+            assert len(games) == len(times)
+        else:
+            times = [i for i in range(len(games))]
+        self.times = times
+        
+    def _init_weights(self, games: List[List[List[str]]], weights: List[float]):
+        team_len = len(games[0][0])
+        if (len(weights) > 0):
+            assert len(weights) == team_len
+        else:
+            weights = [1.0 for _ in range(team_len)]
+        self.weights = weights
+
+    def _get_unique_agents_from_games(self, games: List[List[List[str]]]) -> Set[str]:
+        result_set = set()
+        for inner_list in games:
+            for sub_list in inner_list:
+                result_set.update(sub_list)
+        return result_set
+    
+    def _init_agents(self, games: List[List[List[str]]]):
+        unique_agents = self._get_unique_agents_from_games(games)
+        for agent_name in unique_agents:
+            _p = Player(Gaussian(self.mu, self.sigma), self.beta, self.gamma)
+            self.agents[agent_name] = Agent(_p, Ninf, -inf,)
+
+    def run(self):
+        if self.use_specific_time:
+            # 時間の指定がある場合には時間順
+            order = sortperm(times)
+        else:
+            # そうでない場合には単純にリスト順
+            order = [i for i in range(len(self.games))]
+
+        idx_from = 0
+        while idx_from < len(self.games):
+            if self.use_specific_time:
+                idx_to, time = times[order[idx_from]]
             else:
-                b = Batch(
-                    [composition[k] for k in o[i:j]],
-                    [],
-                    t,
-                    self.agents,
-                    self.p_draw,
-                    weights if not weights else [weights[k] for k in o[i:j]],
-                )
-            self.batches.append(b)
-            for a in b.skills:
-                self.agents[a].last_time = t if self.time else inf
-                self.agents[a].message = b.forward_prior_out(a)
-            i = j
+                idx_to, time = idx_from + 1, idx_from+ 1
 
-    def iteration(self) -> Tuple[float, float]:
-        step = (0.0, 0.0)
-        clean(self.agents)
-        for j in reversed(range(len(self.batches) - 1)):
-            for a in self.batches[j + 1].skills:
-                self.agents[a].message = self.batches[j + 1].backward_prior_out(a)
-            old = self.batches[j].posteriors().copy()
-            self.batches[j].new_backward_info()
-            step = max_tuple(step, dict_diff(old, self.batches[j].posteriors()))
-        clean(self.agents)
-        for j in range(1, len(self.batches)):
-            for a in self.batches[j - 1].skills:
-                self.agents[a].message = self.batches[j - 1].forward_prior_out(a)
-            old = self.batches[j].posteriors().copy()
-            self.batches[j].new_forward_info()
-            step = max_tuple(step, dict_diff(old, self.batches[j].posteriors()))
+            # このイテレーションでどの範囲まで見るか決定する
+            while (len(times) > 0) and (idx_to < len(self.games)) and (times[order[idx_to]] == time):
+                idx_to += 1
 
-        if len(self.batches) == 1:
-            old = self.batches[0].posteriors().copy()
-            self.batches[0].convergence()
-            step = max_tuple(step, dict_diff(old, self.batches[0].posteriors()))
+            # 上記で決定した範囲の結果を取ってくる
+            _games = [self.games[k] for k in order[idx_from:idx_to]]
+            _results = [self.results[k] for k in order[idx_from:idx_to]]
 
-        return step
+            # バッチを作成
+            batch = Batch(
+                _games,
+                _results,
+                time,
+                self.agents,
+                self.p_draw,
+                self.weights
+            )
+            # agentsの更新
+            self._update_agents(batch, time)
+            # バッチを保存
+            self.batches.append(batch)
+            idx_from = idx_to
 
-    def convergence(
-        self,
-        epsilon: float = EPSILON,
-        iterations: int = ITERATIONS,
-        verbose: bool = True,
-    ) -> Tuple[Tuple[float, float], int]:
-        step = (inf, inf)
-        i = 0
-        while gr_tuple(step, epsilon) and (i < iterations):
-            if verbose:
-                print("Iteration = ", i, end=" ")
-            step = self.iteration()
-            i += 1
-            if verbose:
-                print(", step = ", step)
-        if verbose:
-            print("End")
-        return step, i
+    def _update_agents(self, batch: Batch, time: float):
+        for a in batch.skills:
+            self.agents[a].last_time = time if self.use_specific_time else inf
+            self.agents[a].message = batch.forward_prior_out(a)
 
-    def learning_curves(self) -> Dict[Tuple[float, Gaussian]]:
-        res = dict()
+    def get_results(self) -> Dict[str, List[Tuple[float, Gaussian]]]:
+        res: Dict[str, List[Tuple[float, Gaussian]]] = dict()
         for b in self.batches:
             for a in b.skills:
                 t_p = (b.time, b.posterior(a))
@@ -909,7 +819,22 @@ class History(object):
                     res[a] = [t_p]
         return res
 
-    def log_evidence(self) -> float:
-        return sum(
-            [math.log(event.evidence) for b in self.batches for event in b.events]
-        )
+
+if __name__ == "__main__":
+    import pandas as pd
+    from datetime import datetime
+
+    df = pd.read_csv("history.csv", low_memory=False)
+
+    columns = zip(df.w1_id, df.w2_id, df.l1_id, df.l2_id, df.double)
+    games = [
+        [[w1, w2], [l1, l2]] if d == "t" else [[w1], [l1]]
+        for w1, w2, l1, l2, d in columns
+    ]
+    times = [
+        datetime.strptime(t, "%Y-%m-%d").timestamp() / (60 * 60 * 24)
+        for t in df.time_start
+    ]
+
+    h = History(composition=games, times=times, sigma=1.6, gamma=0.036)
+    h.run(games, [], times, [])

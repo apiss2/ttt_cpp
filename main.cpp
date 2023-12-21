@@ -1,11 +1,12 @@
 #include <iostream>
+#include <cmath>
 #include <vector>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <ctime>
-#include "ttt_main.h"
 
+#include "history.h"
 
 struct Data
 {
@@ -27,8 +28,7 @@ struct Data
     std::string tour_name;
 };
 
-int main(void)
-{
+int main() {
 
     std::ifstream file("history.csv");
     std::vector<Data> data;
@@ -67,6 +67,7 @@ int main(void)
         data.push_back(d);
     }
 
+    std::vector<double> days;
     std::vector<std::vector<std::vector<std::string>>> composition;
 
     for (const auto &d : data)
@@ -90,40 +91,25 @@ int main(void)
 
         matchComposition.push_back(winners);
         matchComposition.push_back(losers);
+        if (winners.size() != 2)
+        {
+            continue;
+        }
         composition.push_back(matchComposition);
-    }
-
-    std::vector<double> days;
-
-    for (const auto &d : data)
-    {
+        
         std::tm tm = {};
         strptime(d.time_start.c_str(), "%Y-%m-%d", &tm);
         std::time_t t = mktime(&tm);
         double day = t / (60 * 60 * 24);
         days.push_back(day);
     }
-    std::vector<std::vector<double>> results;
-    for (const std::vector<std::vector<std::string>> &d : composition)
-    {
-        std::vector<double> res;
-        for (int i=1; i < d.size()+1; i++){
-            res.push_back((double)i);
-        }
-        results.push_back(res);
-    }
-
-    TTT::History h = TTT::History(composition, results, days);
-    std::map<std::string, std::vector<std::pair<double, TTT::Gaussian>>> output;
-    output = h.learning_curves();
-    std::vector<std::pair<double, TTT::Gaussian>> output_data;
-    output_data = output["lf73"];
-    for (const auto &d : output_data){
-        std::cout << "  time: " << d.first;
-        std::cout << "    mu: " << d.second.getMu();
-        std::cout << " sigma: " << d.second.getSigma() << std::endl;
-    }
-    std::cout << composition.size();
-
+    
+    std::vector<std::vector<double>> results = {};
+    std::vector<double> weights = {};
+    
+    TTT::History h(
+        composition, results, weights, days,
+        0.0, 1.6, 1.0, 0.036, 0.001);
+    h.run();
     return 0;
 }

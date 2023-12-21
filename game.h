@@ -1,417 +1,554 @@
 #pragma once
 
+#include <iostream>
+#include <cmath>
 #include <vector>
-#include <set>
-#include "utils.h"
+#include <algorithm>
+#include <map>
+
+#include "params.h"
 #include "gaussian.h"
+#include "utils.h"
 #include "team.h"
 
 namespace TTT
 {
-    struct GraphicalModel
-    {
-        std::vector<int> order;
-        std::vector<TeamVariable> team_variables;
-        std::vector<DiffMessage> diff_messages;
-        std::vector<bool> tie_list;
-        std::vector<double> margins;
-    };
+    /*
+    class GraphicalModel:
+        def __init__(self, teams: List[List[Player]], _result: List[float], weights: List[float], p_draw: float) -> None:
+            self.evidence: float = 1.0
+            self.result: List[float] = self.init_result(_result, teams)
+            self.order: List[int] = sortperm(self.result, reverse=True)
+            self.team_variables: List[TeamVariable] = self.init_team_variables(self.order, teams, weights)
+            self.diff_messages: List[DiffMessage] = self.init_diff_messages(teams)
+            self.tie: List[bool] = self.init_tie()
+            self.margins: List[float] = self.init_margin(p_draw)
 
-    class Game
-    {
-    private:
-        std::vector<std::vector<Player>> teams;
-        std::vector<double> result;
-        double p_draw;
-        race_weight weights;
-        std::vector<std::vector<Gaussian>> likelihoods;
-        double evidence;
+        def partial_evidence(self, e: int) -> None:
+            mu, sigma = self.diff_messages[e].prior.mu, self.diff_messages[e].prior.sigma
+            if self.tie[e]:
+                _mul = cdf(self.margins[e], mu, sigma) - cdf(-self.margins[e], mu, sigma)
+            else:
+                _mul = 1 - cdf(self.margins[e], mu, sigma)
+            self.evidence = self.evidence * _mul
 
+        def update_from_front(self, step: Tuple[float, float], i: int):
+            for e in range(len(self.diff_messages) - 1):
+                # 更新_1
+                self.diff_messages[e].prior = self.team_variables[e].posterior_win - self.team_variables[e + 1].posterior_lose
+                if i == 0:
+                    # このクラスのevidence値を更新
+                    self.partial_evidence(self.diff_messages, self.margins, self.tie, e)
+                # 更新_2
+                self.diff_messages[e].likelihood = approx(self.diff_messages[e].prior, self.margins[e], self.tie[e]) / self.diff_messages[e].prior
+                likelihood_lose = self.team_variables[e].posterior_win - self.diff_messages[e].likelihood
+                step = max_tuple(step, self.team_variables[e + 1].likelihood_lose.delta(likelihood_lose))
+                # 更新_3
+                self.team_variables[e + 1].likelihood_lose = likelihood_lose
+
+        def update_from_back(self, step: Tuple[float, float], i: int):
+            # 勝利側の値を更新
+            for e in range(len(self.diff_messages) - 1, 0, -1):
+                # 更新_1
+                self.diff_messages[e].prior = self.team_variables[e].posterior_win - self.team_variables[e + 1].posterior_lose
+                if (i == 0) and (e == len(self.diff_messages) - 1):
+                    # このクラスのevidence値を更新
+                    self.partial_evidence(self.diff_messages, self.margins, self.tie, e)
+                # 更新_2
+                self.diff_messages[e].likelihood = approx(self.diff_messages[e].prior, self.margins[e], self.tie[e]) / self.diff_messages[e].prior
+                likelihood_win = self.team_variables[e + 1].posterior_lose + self.diff_messages[e].likelihood
+                step = max_tuple(step, self.team_variables[e].likelihood_win.delta(likelihood_win))
+                # 更新_3
+                self.team_variables[e].likelihood_win = likelihood_win
+    
+        def init_result(self, result: List[float], teams: List[List[Player]]):
+            if len(result) > 0:
+                return result
+            else:
+                result = [i for i in range(len(teams) -1, -1, -1)]
+
+        def init_team_variables(self, teams: List[List[Player]], weights) -> List[TeamVariable]:
+            ret: List[TeamVariable] = list()
+            for team_idx in range(len(teams)):
+                idx = self.order[team_idx]
+                _p = team_performance(teams[idx], weights)
+                ret.append(TeamVariable(_p, Ninf, Ninf, Ninf))
+            return ret
+    
+        def init_diff_messages(self, teams: List[List[Player]]) -> List[DiffMessage]:
+            ret: List[DiffMessage] = list()
+            for idx in range(len(teams) > 1):
+                ret.append(DiffMessage(teams[idx].prior - teams[idx + 1].prior, Ninf))
+            return ret
+    
+        def init_tie(self) -> List[bool]:
+            ret: List[bool] = list()
+            for e in range(len(self.diff_messages)):
+                ret.append(self.result[self.order[e]] == self.result[self.order[e + 1]])
+            return ret
+    
+        def init_margin(self, p_draw, teams: List[List[Player]]):
+            ret: List[float] = list()
+            for idx in range(len(self.diff_messages)):
+                if p_draw == 0.0:
+                    ret.append(0.0)
+                else:
+                    _sum1 = sum([a.beta**2 for a in teams[self.order[idx]]])
+                    _sum2 = sum([a.beta**2 for a in teams[self.order[idx + 1]]])
+                    _m = compute_margin(p_draw, math.sqrt(_sum1 + _sum2))
+                    ret.append(_m)
+            return ret
+    */
+    class GraphicalModel
+    {
     public:
-        Game(std::vector<std::vector<Player>> _teams, std::vector<double> _result = {}, double _p_draw = 0.0, std::vector<std::vector<double>> _weights = {})
+        GraphicalModel(
+            const std::vector<std::vector<Player>> &_teams,
+            const std::vector<double> &_result,
+            const std::vector<double> &_weights,
+            const double p_draw)
         {
-            this->p_draw = _p_draw;
-            this->teams = _teams;
-            this->result = _result;
-            check_input();
-            if (_weights.size() == 0)
+            evidence = 1.0;
+            init_result(_result, _teams);
+            order = sortperm(result);
+            init_team_variables(order, _teams, _weights);
+            init_diff_messages();
+            init_tie();
+            init_margin(p_draw, _teams);
+        }
+        void init_result(const std::vector<double> &_result, const std::vector<std::vector<Player>> &teams)
+        {
+            if (_result.size() > 0)
             {
-                for (int i = 0; i < weights.size(); i++)
-                {
-                    this->weights.push_back(std::vector<double>(teams[i].size(), 1.0));
-                }
+                this->result = _result;
             }
             else
             {
-                this->weights = _weights;
-            }
-            this->likelihoods = std::vector<std::vector<Gaussian>>();
-            this->evidence = 0.0;
-            compute_likelihoods();
-        }
-
-        Gaussian get_likelihoods(int i, int j)
-        {
-            return this->likelihoods[i][j];
-        }
-
-        double get_evidence()
-        {
-            return this->evidence;
-        }
-
-        void check_input() const
-        {
-            if (this->result.size() && (this->teams.size() != this->result.size()))
-            {
-                throw std::invalid_argument("len(result) and (len(teams) != len(result))");
-            }
-            if ((0.0 > this->p_draw) || (1.0 <= this->p_draw))
-            {
-                throw std::invalid_argument("0.0 <= proba < 1.0");
-            }
-            if ((this->p_draw == 0.0) && (this->result.size() > 0) && (std::set<std::vector<double>>(this->result.begin(), this->result.end()).size() != this->result.size()))
-            {
-                throw std::invalid_argument("(p_draw == 0.0) and (len(result)>0) and (len(set(result))!=len(result))");
-            }
-            if ((this->weights.size() > 0) && (this->teams.size() != this->weights.size()))
-            {
-                throw std::invalid_argument("(len(weights)>0) & (len(teams)!= len(weights))");
-            }
-            for (int i = 0; i < this->weights.size(); i++)
-            {
-                if (this->teams[i].size() != this->weights[i].size())
+                std::vector<double> new_result;
+                for (int i = teams.size() - 1; i >= 0; i--)
                 {
-                    throw std::invalid_argument("(len(weights)>0) & exists i (len(teams[i]) != len(weights[i])");
+                    new_result.push_back(i);
                 }
+                this->result = new_result;
             }
         }
-
-        int teams_size() const
+        void init_team_variables(const std::vector<int> &order, const std::vector<std::vector<Player>> &teams, const std::vector<double> &weights)
         {
-            return this->teams.size();
-        }
-
-        std::vector<int> team_size_list() const
-        {
-            std::vector<int> s;
-            for (int i = 0; this->teams.size(); i++)
+            team_variables.clear();
+            for (int team_idx = 0; team_idx < teams.size(); team_idx++)
             {
-                s.push_back(this->teams[i].size());
+                int idx = order[team_idx];
+                Gaussian _p = team_performance(teams[idx], weights);
+                team_variables.push_back(TeamVariable(_p, Ninf, Ninf, Ninf));
             }
-            return s;
         }
-
-        Gaussian performance(int i)
+        void init_diff_messages()
         {
-            return team_performance(teams[i], weights[i]);
+            diff_messages.clear();
+            for (int idx = 0; idx < team_variables.size() - 1; idx++)
+            {
+                diff_messages.push_back(DiffMessage(team_variables[idx].prior - team_variables[idx + 1].prior, Ninf));
+            }
         }
-
-        void partial_evidence(const std::vector<DiffMessage> &d, std::vector<double> &margin, const std::vector<bool> &tie, int e)
+        void init_tie()
         {
-            double mu = d[e].getPrior().getMu();
-            double sigma = d[e].getPrior().getSigma();
-            double _mul;
-            if (tie[e])
+            tie.clear();
+            for (int e = 0; e < diff_messages.size(); e++)
             {
-                _mul = cdf(margin[e], mu, sigma) - cdf(-margin[e], mu, sigma);
+                tie.push_back(result[order[e]] == result[order[e + 1]]);
             }
-            else
-            {
-                _mul = 1.0 - cdf(margin[e], mu, sigma);
-            }
-            this->evidence = this->evidence * _mul;
         }
-
-        GraphicalModel graphical_model()
+        void init_margin(const double p_draw, const std::vector<std::vector<Player>> &teams)
         {
-            auto &this_game = *this;
-            GraphicalModel ret;
-            std::vector<double> r;
-
-            if (this_game.result.size() > 0)
+            margins.clear();
+            for (int idx = 0; idx < diff_messages.size(); idx++)
             {
-                r = this_game.result;
-            }
-            else
-            {
-                for (int i = this_game.teams.size() - 1; i > -1; i--)
+                if (p_draw == 0.0)
                 {
-                    r.push_back(i);
-                }
-            }
-
-            ret.order = sortperm(r, true);
-
-            for (int e = 0; e < this_game.teams_size(); e++)
-            {
-                ret.team_variables.push_back(TeamVariable(this_game.performance(ret.order[e]), Ninf, Ninf, Ninf));
-            }
-
-            for (int e = 0; e < this_game.teams_size() - 1; e++)
-            {
-                ret.diff_messages.push_back(DiffMessage(ret.team_variables[e].getPrior() - ret.team_variables[e + 1].getPrior(), Ninf));
-            }
-
-            for (int e = 0; e < ret.diff_messages.size(); e++)
-            {
-                ret.tie_list.push_back(r[ret.order[e]] == r[ret.order[e + 1]]);
-            }
-
-            for (int e = 0; e < ret.diff_messages.size(); e++)
-            {
-                if (this_game.p_draw == 0.0)
-                {
-                    ret.margins.push_back(0.0);
+                    margins.push_back(0.0);
                 }
                 else
                 {
-                    double sum_beta_squared_1 = 0.0;
-                    double sum_beta_squared_2 = 0.0;
-
-                    for (const auto &a : this_game.teams[ret.order[e]])
+                    double _sum1 = 0.0;
+                    double _sum2 = 0.0;
+                    for (int i = 0; i < teams[order[idx]].size(); i++)
                     {
-                        sum_beta_squared_1 += std::pow(a.getBeta(), 2);
+                        _sum1 += std::pow(teams[order[idx]][i].beta, 2);
                     }
-
-                    for (const auto &a : this_game.teams[ret.order[e + 1]])
+                    for (int i = 0; i < teams[order[idx + 1]].size(); i++)
                     {
-                        sum_beta_squared_2 += std::pow(a.getBeta(), 2);
+                        _sum2 += std::pow(teams[order[idx + 1]][i].beta, 2);
                     }
-
-                    ret.margins.push_back(compute_margin(this_game.p_draw, std::sqrt(sum_beta_squared_1 + sum_beta_squared_2)));
+                    double _m = compute_margin(p_draw, std::sqrt(_sum1 + _sum2));
+                    margins.push_back(_m);
                 }
             }
-
-            this_game.evidence = 1.0;
-
-            return ret;
         }
-
-        std::vector<std::vector<Gaussian>> likelihood_analitico()
+        void partial_evidence(const int e)
         {
-            auto &this_game = *this;
-            GraphicalModel g_result = this_game.graphical_model();
-            this_game.partial_evidence(g_result.diff_messages, g_result.margins, g_result.tie_list, 0);
-            Gaussian d_gaussian = g_result.diff_messages[0].getPrior();
-            auto [mu_trunc, sigma_trunc] = trunc(d_gaussian.getMu(), d_gaussian.getSigma(), g_result.margins[0], g_result.tie_list[0]);
-
-            double delta_div, theta_div_pow2;
-            if (d_gaussian.getSigma() == sigma_trunc)
+            double mu = diff_messages[e].prior.mu;
+            double sigma = diff_messages[e].prior.sigma;
+            double _mul;
+            if (tie[e])
             {
-                delta_div = d_gaussian.getSigma() * d_gaussian.getSigma() * mu_trunc - sigma_trunc * sigma_trunc * d_gaussian.getMu();
-                theta_div_pow2 = TTT::inf;
+                _mul = cdf(margins[e], mu, sigma) - cdf(-margins[e], mu, sigma);
             }
             else
             {
-                delta_div = (d_gaussian.getSigma() * d_gaussian.getSigma() * mu_trunc - sigma_trunc * sigma_trunc * d_gaussian.getMu()) / (d_gaussian.getSigma() * d_gaussian.getSigma() - sigma_trunc * sigma_trunc);
-                theta_div_pow2 = (sigma_trunc * sigma_trunc * d_gaussian.getSigma() * d_gaussian.getSigma()) / (d_gaussian.getSigma() * d_gaussian.getSigma() - sigma_trunc * sigma_trunc);
+                _mul = 1 - cdf(margins[e], mu, sigma);
+            }
+            evidence = evidence * _mul;
+        }
+        void update_from_front(std::pair<double, double> &step, const int i)
+        {
+            for (int e = 0; e < diff_messages.size() - 1; e++)
+            {
+                // 更新_1
+                diff_messages[e].prior = team_variables[e].posterior_win() - team_variables[e + 1].posterior_lose();
+                // このクラスのevidence値を更新
+                if (i == 0)
+                {
+                    partial_evidence(e);
+                }
+                // 更新_2
+                diff_messages[e].likelihood = approx(diff_messages[e].prior, margins[e], tie[e]) / diff_messages[e].prior;
+                // 更新_3 (stepも更新)
+                Gaussian likelihood_lose = team_variables[e].posterior_win() - diff_messages[e].likelihood;
+                step = max_tuple(step, team_variables[e + 1].likelihood_lose.delta(likelihood_lose));
+                team_variables[e + 1].likelihood_lose = likelihood_lose;
+            }
+        }
+        void update_from_back(std::pair<double, double> &step, const int i)
+        {
+            // 勝利側の値を更新
+            for (int e = diff_messages.size() - 1; e > 0; e--)
+            {
+                // 更新_1
+                diff_messages[e].prior = team_variables[e].posterior_win() - team_variables[e + 1].posterior_lose();
+                // このクラスのevidence値を更新
+                if (i == 0 && e == diff_messages.size() - 1)
+                {
+                    partial_evidence(e);
+                }
+                // 更新_2
+                diff_messages[e].likelihood = approx(diff_messages[e].prior, margins[e], tie[e]) / diff_messages[e].prior;
+                // 更新_3 (stepも更新)
+                Gaussian likelihood_win = team_variables[e + 1].posterior_lose() + diff_messages[e].likelihood;
+                step = max_tuple(step, team_variables[e].likelihood_win.delta(likelihood_win));
+                team_variables[e].likelihood_win = likelihood_win;
+            }
+        }
+        double evidence;
+        std::vector<double> result;
+        std::vector<int> order;
+        std::vector<TeamVariable> team_variables;
+        std::vector<DiffMessage> diff_messages;
+        std::vector<bool> tie;
+        std::vector<double> margins;
+    }; //GraphicalModel;
+
+    /*
+    class Game(object):
+        def __init__(
+            self,
+            teams: List[List[Player]],
+            result: List[float] = [],
+            p_draw: float = 0.0,
+            weights: List[float] = [],
+        ):
+            self.check_inputs(result, teams, p_draw, weights)
+            self.teams: List[List[Player]] = teams
+            self.result: List[float] = result
+            self.p_draw: float = p_draw
+            self.weights: List[float] = weights
+            self.likelihoods: List[List[Gaussian]] = []
+            self.evidence: float = 0.0
+            self.compute_likelihoods()
+
+        def check_inputs(self, result, teams, p_draw, weights):
+            if len(result):
+                assert len(teams) == len(result)
+            assert 0 < p_draw < 1
+            for team in teams:
+                assert len(team) == len(weights)
+
+        def performance(self, i: int) -> Gaussian:
+            return team_performance(self.teams[i], self.weights)
+
+        def likelihood_analitico(self) -> List[List[Gaussian]]:
+            grm = GraphicalModel(self.teams, self.result, self.weights)
+            grm.partial_evidence(0)
+            diffmsg = grm.diff_messages[0].prior
+            margin = grm.margins[0]
+            tie = grm.tie[0]
+
+            mu_trunc, sigma_trunc = trunc(diffmsg.mu, diffmsg.sigma, margin, tie)
+            delta_div = diffmsg.sigma**2 * mu_trunc - sigma_trunc**2 * diffmsg.mu
+            if diffmsg.sigma == sigma_trunc:
+                theta_div_pow2 = inf
+            else:
+                _div = diffmsg.sigma**2 - sigma_trunc**2
+                delta_div = delta_div / _div
+                theta_div_pow2 = (sigma_trunc**2 * diffmsg.sigma**2) / _div
+
+            # チームごとに計算
+            res = []
+            for team_idx in range(len(grm.team_variables)):
+                team = []
+                for j in range(len(self.teams[grm.order[team_idx]])):
+                    if diffmsg.sigma == sigma_trunc:
+                        mu = 0.0
+                    else:
+                        _mu = self.teams[grm.order[team_idx]][j].prior.mu
+                        _d = delta_div - diffmsg.mu
+                        if team_idx == 1:
+                            mu = _mu - _d
+                        else:
+                            mu = _mu + _d
+                    _team_sigma = self.teams[grm.order[team_idx]][j].prior.sigma ** 2
+                    sigma_analitico = math.sqrt(theta_div_pow2 + diffmsg.sigma**2 - _team_sigma)
+                    team.append(Gaussian(mu, sigma_analitico))
+                res.append(team)
+            # evidence更新
+            self.evidence = grm.evidence
+            # 大小関係確認して返却
+            if grm.order[0] < grm.order[1]:
+                return [res[0], res[1]]
+            else:
+                return [res[1], res[0]]
+
+        def likelihood_teams(self) -> List[Gaussian]:
+            grm = GraphicalModel(self.teams, self.result, self.weights)
+            step = (inf, inf)
+            i = 0
+            while gr_tuple(step, 1e-6) and (i < 10):
+                step = (0.0, 0.0)
+                grm.update_from_front(step, i)
+                grm.update_from_back(step, i)
+                i += 1
+
+            if len(grm.diff_messages) == 1:
+                # evidence値を更新
+                grm.partial_evidence(0)
+                # diff_messages更新
+                grm.diff_messages[0].prior = grm.team_variables[0].posterior_win - grm.team_variables[1].posterior_lose
+                grm.diff_messages[0].likelihood = approx(grm.diff_messages[0].prior, grm.margins[0], grm.tie[0]) / grm.diff_messages[0].prior
+
+            # Gameクラスのevidenceを更新
+            self.evidence = grm.evidence
+            grm.team_variables[0].likelihood_win = grm.team_variables[1].posterior_lose + grm.diff_messages[0].likelihood
+            grm.team_variables[-1].likelihood_lose = grm.team_variables[-2].posterior_win - grm.diff_messages[-1].likelihood
+            return [grm.team_variables[grm.order[e]].likelihood for e in range(len(grm.team_variables))]
+
+        def hasNotOneWeights(self) -> bool:
+            for t in self.weights:
+                for w in t:
+                    if w != 1.0:
+                        return True
+            return False
+
+        def compute_likelihoods(self) -> None:
+            if (len(self.teams) > 2) or self.hasNotOneWeights():
+                m_t_ft = self.likelihood_teams()
+                self.likelihoods: List[List[Gaussian]] = list()
+                for e in range(len(self.teams)):
+                    likelihood_e = list()
+                    for i in range(len(self.teams[e])):
+                        if self.weights[i] != 0.0:
+                            _lh = 1 / self.weights[i]
+                        else:
+                            _lh = inf
+                        lh: Gaussian = _lh * (m_t_ft[e] - self.performance(e).exclude(self.teams[e][i].prior * self.weights[i]))
+                        likelihood_e.append(lh)
+                    self.likelihoods.append(likelihood_e)
+            else:
+                self.likelihoods = self.likelihood_analitico()
+    */
+    class Game
+    {
+    public:
+        Game(
+            const std::vector<std::vector<Player>> &_teams,
+            const std::vector<double> &_result,
+            const double _p_draw,
+            const std::vector<double> &_weights)
+        {
+            check_inputs(_result, _teams, _p_draw, _weights);
+            teams = _teams;
+            result = _result;
+            p_draw = _p_draw;
+            weights = _weights;
+            evidence = 0.0;
+            compute_likelihoods();
+        }
+        void check_inputs(const std::vector<double> &_result, const std::vector<std::vector<Player>> &_teams, const double p_draw, const std::vector<double> &_weights)
+        {
+            if (_teams.size() != _result.size())
+            {
+                throw std::invalid_argument("len(teams) != len(result)");
+            }
+            if (p_draw <= 0 || p_draw >= 1)
+            {
+                throw std::invalid_argument("0 < p_draw < 1");
+            }
+            for (auto _team : _teams)
+            {
+                if (_team.size() != _weights.size())
+                {
+                    throw std::invalid_argument("len(team) != len(weights)");
+                }
+            }
+        }
+        Gaussian performance(const int i)
+        {
+            return team_performance(teams[i], weights);
+        }
+        std::vector<std::vector<Gaussian>> likelihood_analitico()
+        {
+            GraphicalModel grm(teams, result, weights, p_draw);
+            grm.partial_evidence(0);
+            Gaussian diffmsg = grm.diff_messages[0].prior;
+            double margin = grm.margins[0];
+            bool tie = grm.tie[0];
+
+            double mu_trunc, sigma_trunc;
+            std::tie(mu_trunc, sigma_trunc) = trunc(diffmsg.mu, diffmsg.sigma, margin, tie);
+            double delta_div = diffmsg.sigma * diffmsg.sigma * mu_trunc - sigma_trunc * sigma_trunc * diffmsg.mu;
+            double theta_div_pow2;
+            if (diffmsg.sigma == sigma_trunc)
+            {
+                theta_div_pow2 = inf;
+            }
+            else
+            {
+                double _div = diffmsg.sigma * diffmsg.sigma - sigma_trunc * sigma_trunc;
+                delta_div = delta_div / _div;
+                theta_div_pow2 = (sigma_trunc * sigma_trunc * diffmsg.sigma * diffmsg.sigma) / _div;
             }
 
+            // チームごとに計算
             std::vector<std::vector<Gaussian>> res;
-            for (size_t i = 0; i < g_result.team_variables.size(); i++)
+            for (int team_idx = 0; team_idx < grm.team_variables.size(); team_idx++)
             {
                 std::vector<Gaussian> team;
-                for (size_t j = 0; j < this->teams[g_result.order[i]].size(); j++)
+                for (int j = 0; j < teams[grm.order[team_idx]].size(); j++)
                 {
-                    double mu_analitico;
-                    if (d_gaussian.getSigma() == sigma_trunc)
+                    double mu;
+                    if (diffmsg.sigma == sigma_trunc)
                     {
-                        mu_analitico = 0.0;
+                        mu = 0.0;
                     }
                     else
                     {
-                        double raw_mu = this->teams[g_result.order[i]][j].getPrior().getMu();
-                        double add_mu = delta_div - d_gaussian.getMu();
-                        if (i == 1)
+                        double _mu = teams[grm.order[team_idx]][j].prior.mu;
+                        double _d = delta_div - diffmsg.mu;
+                        if (team_idx == 1)
                         {
-                            mu_analitico = raw_mu - add_mu;
+                            mu = _mu - _d;
                         }
                         else
                         {
-                            mu_analitico = raw_mu + add_mu;
+                            mu = _mu + _d;
                         }
                     }
-                    double sigma_analitico = sqrt(theta_div_pow2 + d_gaussian.getSigma() * d_gaussian.getSigma() - this_game.teams[g_result.order[i]][j].getPrior().getSigma() * this_game.teams[g_result.order[i]][j].getPrior().getSigma());
-                    team.push_back(Gaussian(mu_analitico, sigma_analitico));
+                    double _team_sigma = teams[grm.order[team_idx]][j].prior.sigma * teams[grm.order[team_idx]][j].prior.sigma;
+                    double sigma_analitico = std::sqrt(theta_div_pow2 + diffmsg.sigma * diffmsg.sigma - _team_sigma);
+                    team.push_back(Gaussian(mu, sigma_analitico));
                 }
                 res.push_back(team);
             }
-            std::vector<std::vector<Gaussian>> ret;
-            if (g_result.order[0] < g_result.order[1])
+            // evidence更新
+            evidence = grm.evidence;
+            // 大小関係確認して返却
+            if (grm.order[0] < grm.order[1])
             {
-                ret.push_back(res[0]);
-                ret.push_back(res[1]);
+                return {res[0], res[1]};
             }
             else
             {
-                ret.push_back(res[1]);
-                ret.push_back(res[0]);
+                return {res[1], res[0]};
             }
-            return ret;
         }
-
         std::vector<Gaussian> likelihood_teams()
         {
-            Game g = *this;
-            auto [o, t, d, tie, margin] = g.graphical_model();
-
-            std::pair<double, double> step(TTT::inf, TTT::inf);
+            GraphicalModel grm(teams, result, weights, p_draw);
+            std::pair<double, double> step = {inf, inf};
             int i = 0;
             while (gr_tuple(step, 1e-6) && (i < 10))
             {
-                step = std::make_pair(0.0, 0.0);
-                for (int e = 0; e < d.size() - 1; e++)
-                {
-                    d[e].getPrior() = t[e].posterior_win() - t[e + 1].posterior_lose();
-                    if (i == 0)
-                    {
-                        g.partial_evidence(d, margin, tie, e);
-                    }
-                    Gaussian p = d[e].getPrior();
-                    d[e].setLikelihood(approx(p, margin[e], tie[e]) / p);
-                    Gaussian likelihood_lose = t[e].posterior_win() - d[e].getLikelihood();
-                    std::pair<double, double> t2 = t[e + 1].getLikelihoodLose().delta(likelihood_lose);
-                    step = max_tuple(step, t2);
-                    t[e + 1].setLikelihoodLose(likelihood_lose);
-                }
-                for (int e = d.size() - 1; e > 0; e--)
-                {
-                    d[e].setPrior(t[e].posterior_win() - t[e + 1].posterior_lose());
-                    if ((i == 0) && (e == d.size() - 1))
-                    {
-                        g.partial_evidence(d, margin, tie, e);
-                    }
-                    Gaussian p = d[e].getPrior();
-                    d[e].setLikelihood(approx(p, margin[e], tie[e]) / p);
-                    Gaussian likelihood_win = t[e + 1].posterior_lose() + d[e].getLikelihood();
-                    std::pair<double, double> t2 = t[e].getLikelihoodWin().delta(likelihood_win);
-                    step = max_tuple(step, t2);
-                    t[e].setLikelihoodWin(likelihood_win);
-                }
-                i++;
+                step = {0.0, 0.0};
+                grm.update_from_front(step, i);
+                grm.update_from_back(step, i);
+                i += 1;
             }
 
-            if (d.size() == 1)
+            if (grm.diff_messages.size() == 1)
             {
-                g.partial_evidence(d, margin, tie, 0);
-                d[0].setPrior(t[0].posterior_win() - t[1].posterior_lose());
-                Gaussian p = d[0].getPrior();
-                d[0].setLikelihood(approx(p, margin[0], tie[0]) / p);
+                // evidence値を更新
+                grm.partial_evidence(0);
+                // diff_messages更新
+                grm.diff_messages[0].prior = grm.team_variables[0].posterior_win() - grm.team_variables[1].posterior_lose();
+                grm.diff_messages[0].likelihood = approx(grm.diff_messages[0].prior, grm.margins[0], grm.tie[0]) / grm.diff_messages[0].prior;
             }
 
-            t[0].setLikelihoodWin(t[1].posterior_lose() + d[0].getLikelihood());
-            t.back().setLikelihoodLose(t[t.size() - 2].posterior_win() - d.back().getLikelihood());
-
-            std::vector<Gaussian> likelihoods;
-            for (auto &team : t)
+            // Gameクラスのevidenceを更新
+            evidence = grm.evidence;
+            grm.team_variables[0].likelihood_win = grm.team_variables[1].posterior_lose() + grm.diff_messages[0].likelihood;
+            grm.team_variables[grm.team_variables.size() - 1].likelihood_lose = grm.team_variables[grm.team_variables.size() - 2].posterior_win() - grm.diff_messages[grm.diff_messages.size() - 1].likelihood;
+            std::vector<Gaussian> ret;
+            for (int e = 0; e < grm.team_variables.size(); e++)
             {
-                likelihoods.push_back(team.likelihood());
+                ret.push_back(grm.team_variables[grm.order[e]].likelihood());
             }
-            return likelihoods;
+            return ret;
         }
-
-        bool hasNotOneWeights()
+        bool hasNotOneWeights() const
         {
-            for (auto t : this->weights)
+            for (int i = 0; i < weights.size(); i++)
             {
-                for (auto w : t)
+                if (weights[i] != 1.0)
                 {
-                    if (w != 1.0)
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             return false;
         }
-
         void compute_likelihoods()
         {
-            Game &thisgame = *this;
             if ((teams.size() > 2) || hasNotOneWeights())
             {
-                std::vector<Gaussian> m_t_ft = thisgame.likelihood_teams();
-                thisgame.likelihoods.clear();
-                for (int e = 0; e < thisgame.teams_size(); e++)
+                std::vector<Gaussian> m_t_ft = likelihood_teams();
+                likelihoods.clear();
+                for (int e = 0; e < teams.size(); e++)
                 {
-                    std::vector<Gaussian> lh_list;
+                    std::vector<Gaussian> likelihood_e;
                     for (int i = 0; i < teams[e].size(); i++)
                     {
-                        double _lh_w;
-                        Gaussian _lh;
-                        if (weights[e][i] != 0.0)
+                        double _lh;
+                        if (weights[i] != 0.0)
                         {
-                            _lh_w = (1 / weights[e][i]);
+                            _lh = 1 / weights[i];
                         }
                         else
                         {
-                            _lh_w = TTT::inf;
+                            _lh = inf;
                         }
-                        _lh = (m_t_ft[e] - thisgame.performance(e).exclude(thisgame.teams[e][i].getPrior() * thisgame.weights[e][i])) * _lh_w;
-                        lh_list.push_back(_lh);
+                        Gaussian lh = (m_t_ft[e] - performance(e).exclude(teams[e][i].prior * weights[i])) * _lh;
+                        likelihood_e.push_back(lh);
                     }
-                    thisgame.likelihoods.push_back(lh_list);
+                    likelihoods.push_back(likelihood_e);
                 }
             }
             else
             {
-                thisgame.likelihoods = thisgame.likelihood_analitico();
+                likelihoods = likelihood_analitico();
             }
         }
-
-        std::vector<std::vector<Gaussian>> posteriors()
-        {
-            Game &thisgame = *this;
-            std::vector<std::vector<Gaussian>> res;
-            for (int e = 0; e < thisgame.teams_size(); e++)
-            {
-                std::vector<Gaussian> _res;
-                for (int i = 0; i < thisgame.teams[e].size(); i++)
-                {
-                    _res.push_back(thisgame.likelihoods[e][i] * thisgame.teams[e][i].getPrior());
-                }
-                res.push_back(_res);
-            }
-            return res;
-        }
-    };
-
-    class Event
-    {
-    public:
-        std::vector<Team> teams;
+        std::vector<std::vector<Player>> teams;
+        std::vector<double> result;
+        double p_draw;
+        std::vector<double> weights;
+        std::vector<std::vector<Gaussian>> likelihoods;
         double evidence;
-        race_weight weights;
-
-        Event(
-            std::vector<Team> t,
-            double ev,
-            std::vector<std::vector<double>> w) : teams(t), evidence(ev), weights(w) {}
-
-        std::vector<std::vector<std::string>> names()
-        {
-            std::vector<std::vector<std::string>> res;
-            for (const Team &team : teams)
-            {
-                std::vector<std::string> team_names;
-                for (const Item &item : team.items)
-                {
-                    team_names.push_back(item.name);
-                }
-                res.push_back(team_names);
-            }
-            return res;
-        }
-
-        std::vector<double> result()
-        {
-            std::vector<double> res;
-            for (const Team &team : teams)
-            {
-                res.push_back(team.output);
-            }
-            return res;
-        }
-    };
-}
+    }; // Game
+}; // namespace TTT

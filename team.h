@@ -1,67 +1,92 @@
 #pragma once
 
+#include <iostream>
+#include <cmath>
 #include <vector>
+#include <algorithm>
+#include <map>
+
+#include "params.h"
 #include "gaussian.h"
+
 namespace TTT
 {
+    /*
+    class Player(object):
+        def __init__(
+            self,
+            prior: Gaussian = Gaussian(MU, SIGMA),
+            beta: float = BETA,
+            gamma: float = GAMMA,
+            prior_draw: Gaussian = Ninf,
+        ):
+            self.prior = prior
+            self.beta = beta
+            self.gamma = gamma
+            self.prior_draw = prior_draw
+
+        def performance(self) -> Gaussian:
+            return Gaussian(self.prior.mu, math.sqrt(self.prior.sigma**2 + self.beta**2))
+
+    */
     class Player
     {
-    private:
+    public:
+        Player(Gaussian prior = Gaussian(MU, SIGMA), double beta = BETA, double gamma = GAMMA, Gaussian prior_draw = Ninf)
+            : prior(prior), beta(beta), gamma(gamma), prior_draw(prior_draw) {}
+
+        Gaussian performance() const
+        {
+            return Gaussian(prior.mu, sqrt(prior.sigma * prior.sigma + beta * beta));
+        }
+
         Gaussian prior;
         double beta;
         double gamma;
         Gaussian prior_draw;
-
-    public:
-        Player(Gaussian p = Gaussian(TTT::MU, TTT::SIGMA), double b = TTT::BETA, double g = TTT::GAMMA, Gaussian pd = TTT::Ninf)
-        {
-            this->prior = p;
-            this->beta = b;
-            this->gamma = g;
-            this->prior_draw = pd;
-        }
-
-        Gaussian performance() const
-        {
-            return Gaussian(prior.getMu(), std::sqrt(prior.getSigma() * prior.getSigma() + beta * beta));
-        }
-
-        std::string to_string() const
-        {
-            return "Player(Gaussian(mu=" + std::to_string(prior.getMu()) + ", sigma=" + std::to_string(prior.getSigma()) + "), beta=" + std::to_string(beta) + ", gamma=" + std::to_string(gamma) + ")";
-        }
-
-        double getGamma() const
-        {
-            return this->gamma;
-        }
-
-        Gaussian getPrior() const
-        {
-            return this->prior;
-        }
-
-        double getBeta() const
-        {
-            return this->beta;
-        }
-
-        Gaussian getPriorDraw() const
-        {
-            return this->prior_draw;
-        }
     };
 
+    /*
+    class TeamVariable(object):
+        def __init__(
+            self,
+            prior: Gaussian = Ninf,
+            likelihood_lose: Gaussian = Ninf,
+            likelihood_win: Gaussian = Ninf,
+            likelihood_draw: Gaussian = Ninf,
+        ) -> None:
+            self.prior = prior
+            self.likelihood_lose = likelihood_lose
+            self.likelihood_win = likelihood_win
+            self.likelihood_draw = likelihood_draw
+
+        @property
+        def p(self) -> Gaussian:
+            return (
+                self.prior
+                * self.likelihood_lose
+                * self.likelihood_win
+                * self.likelihood_draw
+            )
+
+        @property
+        def posterior_win(self) -> Gaussian:
+            return self.prior * self.likelihood_lose * self.likelihood_draw
+
+        @property
+        def posterior_lose(self) -> Gaussian:
+            return self.prior * self.likelihood_win * self.likelihood_draw
+
+        @property
+        def likelihood(self) -> Gaussian:
+            return self.likelihood_win * self.likelihood_lose * self.likelihood_draw
+
+    */
     class TeamVariable
     {
-    private:
-        Gaussian prior;
-        Gaussian likelihood_lose;
-        Gaussian likelihood_win;
-        Gaussian likelihood_draw;
-
     public:
-        TeamVariable(Gaussian p, Gaussian ll, Gaussian lw, Gaussian ld) : prior(p), likelihood_lose(ll), likelihood_win(lw), likelihood_draw(ld) {}
+        TeamVariable(const Gaussian prior = Ninf, const Gaussian likelihood_lose = Ninf, Gaussian likelihood_win = Ninf, const Gaussian likelihood_draw = Ninf)
+            : prior(prior), likelihood_lose(likelihood_lose), likelihood_win(likelihood_win), likelihood_draw(likelihood_draw) {}
 
         Gaussian p() const
         {
@@ -83,138 +108,50 @@ namespace TTT
             return likelihood_win * likelihood_lose * likelihood_draw;
         }
 
-        Gaussian getPrior()
-        {
-            return this->prior;
-        }
-
-        void setPrior(Gaussian p)
-        {
-            this->prior = p;
-        }
-
-        Gaussian getLikelihoodLose() const
-        {
-            return this->likelihood_lose;
-        }
-
-        void setLikelihoodLose(Gaussian l)
-        {
-            this->likelihood_lose = l;
-        }
-
-        Gaussian getLikelihoodWin() const
-        {
-            return this->likelihood_win;
-        }
-
-        void setLikelihoodWin(Gaussian l)
-        {
-            this->likelihood_win = l;
-        }
-
-        Gaussian getLikelihoodDraw() const
-        {
-            return this->likelihood_draw;
-        }
-
-        void setLikelihoodDraw(Gaussian l)
-        {
-            this->likelihood_draw = l;
-        }
+        Gaussian prior;
+        Gaussian likelihood_lose;
+        Gaussian likelihood_win;
+        Gaussian likelihood_draw;
     };
-
-    Gaussian team_performance(std::vector<Player> &team, team_weight &weights)
+    /*
+    def team_performance(team: List[Player], weights: List[float]) -> Gaussian:
+        res = N00
+        for player, w in zip(team, weights):
+            res += player.performance() * w
+        return res
+    */
+    Gaussian team_performance(const std::vector<Player> &team, const std::vector<double> &weights)
     {
-        Gaussian res = TTT::N00;
+        Gaussian res = N00;
         for (int i = 0; i < team.size(); i++)
         {
-            res = res + team[i].performance() * weights[i];
+            res += team[i].performance() * weights[i];
         }
         return res;
     }
+    /*
+    class DiffMessage(object):
+        def __init__(self, prior: Gaussian = Ninf, likelihood: Gaussian = Ninf):
+            self.prior = prior
+            self.likelihood = likelihood
 
-    struct Skill
+        @property
+        def p(self) -> Gaussian:
+            return self.prior * self.likelihood
+    */
+    class DiffMessage
     {
-        Gaussian forward;
-        Gaussian backward;
-        Gaussian likelihood;
-        double elapsed;
-        Skill(Gaussian _f = TTT::Ninf, Gaussian _b = TTT::Ninf, Gaussian _l = TTT::Ninf, double _e = 0.0) : forward(_f), backward(_b), likelihood(_l), elapsed(_e) {}
-    };
-
-    class Agent
-    {
-    private:
-        Player player;
-        Gaussian message;
-        double last_time;
     public:
-        Agent(){};
-        Agent(Player p, Gaussian m, double l)
+        DiffMessage(const Gaussian prior = Ninf, const Gaussian likelihood = Ninf)
+            : prior(prior), likelihood(likelihood) {}
+
+        Gaussian p() const
         {
-            this->player = p;
-            this->message = m;
-            this->last_time = l;
+            return prior * likelihood;
         }
 
-        Gaussian receive(double elapsed)
-        {
-            Gaussian res;
-            if (message != Ninf)
-            {
-                res = message.forget(player.getGamma(), elapsed);
-            }
-            else
-            {
-                res = player.getPrior();
-            }
-            return res;
-        }
-
-        Player getPlayer()
-        {
-            return this->player;
-        }
-
-        void setPlayer(Player p)
-        {
-            this->player = p;
-        }
-
-        Gaussian getMessage()
-        {
-            return this->message;
-        }
-
-        void setMessage(Gaussian m)
-        {
-            this->message = m;
-        }
-
-        double getLasttime()
-        {
-            return this->last_time;
-        }
-
-        void setLasttime(double l)
-        {
-            this->last_time = l;
-        }
-    };
-
-    struct Item
-    {
-        std::string name;
+        Gaussian prior;
         Gaussian likelihood;
-        Item(std::string _n, Gaussian _l) : name(_n), likelihood(_l) {}
     };
-
-    struct Team
-    {
-        std::vector<Item> items;
-        double output;
-        Team(std::vector<Item> _i, double _o) : items(_i), output(_o) {}
-    };
-
+    
 }
