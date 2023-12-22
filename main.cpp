@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <ctime>
+#include <chrono>
 
 #include "history.h"
 
@@ -107,9 +108,26 @@ int main() {
     std::vector<std::vector<double>> results = {};
     std::vector<double> weights = {};
     
+
+
+    auto start = std::chrono::high_resolution_clock::now();
+
     TTT::History h(
         composition, results, weights, days,
         0.0, 1.6, 1.0, 0.036, 0.001);
     h.run();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+
+    std::map<std::string, std::vector<std::pair<double, TTT::Gaussian>>> result = h.get_results();
+    for (auto &r : result)
+    {
+        std::cout << r.first << " : " << r.second.back().second.mu << std::endl;
+    }
+    
+    std::cout << "Execution time: " << duration.count() << " seconds" << std::endl;
+    
+
     return 0;
 }

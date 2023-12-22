@@ -334,10 +334,10 @@ class GraphicalModel:
         self.evidence: float = 1.0
         self.result: List[float] = self.init_result(_result, teams)
         self.order: List[int] = sortperm(self.result, reverse=True)
-        self.team_variables: List[TeamVariable] = self.init_team_variables(self.order, teams, weights)
-        self.diff_messages: List[DiffMessage] = self.init_diff_messages(teams)
+        self.team_variables: List[TeamVariable] = self.init_team_variables(teams, weights)
+        self.diff_messages: List[DiffMessage] = self.init_diff_messages()
         self.tie: List[bool] = self.init_tie()
-        self.margins: List[float] = self.init_margin(p_draw)
+        self.margins: List[float] = self.init_margin(p_draw, teams)
 
     def partial_evidence(self, e: int) -> None:
         mu, sigma = self.diff_messages[e].prior.mu, self.diff_messages[e].prior.sigma
@@ -380,7 +380,7 @@ class GraphicalModel:
         if len(result) > 0:
             return result
         else:
-            result = [i for i in range(len(teams) -1, -1, -1)]
+            return [i for i in range(len(teams) -1, -1, -1)]
 
     def init_team_variables(self, teams: List[List[Player]], weights) -> List[TeamVariable]:
         ret: List[TeamVariable] = list()
@@ -390,10 +390,10 @@ class GraphicalModel:
             ret.append(TeamVariable(_p, Ninf, Ninf, Ninf))
         return ret
    
-    def init_diff_messages(self, teams: List[List[Player]]) -> List[DiffMessage]:
+    def init_diff_messages(self) -> List[DiffMessage]:
         ret: List[DiffMessage] = list()
-        for idx in range(len(teams) > 1):
-            ret.append(DiffMessage(teams[idx].prior - teams[idx + 1].prior, Ninf))
+        for idx in range(len(self.team_variables) - 1):
+            ret.append(DiffMessage(self.team_variables[idx].prior - self.team_variables[idx + 1].prior, Ninf))
         return ret
    
     def init_tie(self) -> List[bool]:
@@ -443,7 +443,7 @@ class Game(object):
         return team_performance(self.teams[i], self.weights)
 
     def likelihood_analitico(self) -> List[List[Gaussian]]:
-        grm = GraphicalModel(self.teams, self.result, self.weights)
+        grm = GraphicalModel(self.teams, self.result, self.weights, self.p_draw)
         grm.partial_evidence(0)
         diffmsg = grm.diff_messages[0].prior
         margin = grm.margins[0]
@@ -508,10 +508,9 @@ class Game(object):
         return [grm.team_variables[grm.order[e]].likelihood for e in range(len(grm.team_variables))]
 
     def hasNotOneWeights(self) -> bool:
-        for t in self.weights:
-            for w in t:
-                if w != 1.0:
-                    return True
+        for w in self.weights:
+            if w != 1.0:
+                return True
         return False
 
     def compute_likelihoods(self) -> None:
@@ -616,7 +615,7 @@ class Batch(object):
         self.weights = weights
         batch_unique_agents = self._get_agent_set(games)
         self._init_skills(batch_unique_agents)
-        self._init_events(results)
+        self._init_events(games, results)
         self.iteration()
 
     def _get_agent_set(self, games: List[List[List[str]]]):
@@ -776,7 +775,7 @@ class History(object):
         idx_from = 0
         while idx_from < len(self.games):
             if self.use_specific_time:
-                idx_to, time = times[order[idx_from]]
+                idx_to, time = idx_from + 1, times[order[idx_from]]
             else:
                 idx_to, time = idx_from + 1, idx_from+ 1
 
@@ -827,14 +826,29 @@ if __name__ == "__main__":
     df = pd.read_csv("history.csv", low_memory=False)
 
     columns = zip(df.w1_id, df.w2_id, df.l1_id, df.l2_id, df.double)
-    games = [
+    _games = [
         [[w1, w2], [l1, l2]] if d == "t" else [[w1], [l1]]
         for w1, w2, l1, l2, d in columns
     ]
-    times = [
+    _times = [
         datetime.strptime(t, "%Y-%m-%d").timestamp() / (60 * 60 * 24)
         for t in df.time_start
     ]
+    games, times = [], []
+    for g, t in zip(_games, _times):
+        if len(g[0]) != 1:
+            continue
+        games.append(g)
+        times.append(t)
 
-    h = History(composition=games, times=times, sigma=1.6, gamma=0.036)
-    h.run(games, [], times, [])
+    import time
+    s = time.time()
+    h = History(games, times=times, sigma=1.6, gamma=0.036, p_draw=0.001)
+    h.run()
+    e = time.time()
+    print(e - s)
+
+    # result = h.get_results()
+
+    # for a, history in result.items():
+    #     print(a, history[-1][1].mu)
