@@ -15,8 +15,6 @@ __all__ = [
     "BETA",
     "GAMMA",
     "P_DRAW",
-    "EPSILON",
-    "ITERATIONS",
     "Gaussian",
     "Player",
     "Game",
@@ -29,9 +27,7 @@ BETA = 1.0
 MU = 0.0
 SIGMA = BETA * 6
 GAMMA = BETA * 0.03
-P_DRAW = 0.0
-EPSILON = 1e-6
-ITERATIONS = 30
+P_DRAW = 0.001
 sqrt2 = math.sqrt(2)
 sqrt2pi = math.sqrt(2 * math.pi)
 inf = math.inf

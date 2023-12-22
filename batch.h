@@ -107,7 +107,7 @@ namespace TTT
    class Item
    {
     public:
-         Item(std::string _name, Gaussian _likelihood)
+        Item(const std::string &_name, const Gaussian &_likelihood)
               : name(_name), likelihood(_likelihood) {}
     
          std::string name;
@@ -122,7 +122,7 @@ namespace TTT
     class Team
     {
     public:
-        Team(std::vector<Item> _items, double _output)
+        Team(const std::vector<Item> &_items, const double &_output)
             : items(_items), output(_output) {}
 
         std::vector<Item> items;
@@ -143,7 +143,7 @@ namespace TTT
     class Event
     {
     public:
-        Event(std::vector<Team> teams, double evidence, std::vector<double> weights)
+        Event(const std::vector<Team> &teams, const double &evidence, const std::vector<double> &weights)
             : teams(teams), evidence(evidence), weights(weights) {}
 
         std::vector<double> result() const
@@ -284,10 +284,10 @@ namespace TTT
     {
     public:
         Batch(
-            std::vector<std::vector<std::vector<std::string>>> _games,
-            std::vector<std::vector<double>> _results,
+            const std::vector<std::vector<std::vector<std::string>>> &_games,
+            const std::vector<std::vector<double>> &_results,
             double _time,
-            std::map<std::string, Agent> _agents,
+            std::map<std::string, Agent> &_agents,
             double _p_draw,
             std::vector<double> _weights)
             : agents(_agents), time(_time), p_draw(_p_draw), weights(_weights)
@@ -298,7 +298,7 @@ namespace TTT
             iteration();
         }
 
-        std::set<std::string> get_agent_set(std::vector<std::vector<std::vector<std::string>>> games)
+        std::set<std::string> get_agent_set(const std::vector<std::vector<std::vector<std::string>>> &games)
         {
             std::set<std::string> this_batch_agents;
             for (auto &teams : games)
@@ -314,7 +314,7 @@ namespace TTT
             return this_batch_agents;
         }
 
-        void init_skills(std::set<std::string> agents)
+        void init_skills(const std::set<std::string> &agents)
         {
             for (auto &a : agents)
             {
@@ -323,7 +323,7 @@ namespace TTT
             }
         }
 
-        void init_events(std::vector<std::vector<std::vector<std::string>>> games, std::vector<std::vector<double>> results)
+        void init_events(const std::vector<std::vector<std::vector<std::string>>> &games, const std::vector<std::vector<double>> &results)
         {
             for (int event_idx = 0; event_idx < games.size(); event_idx++)
             {
@@ -352,7 +352,7 @@ namespace TTT
             }
         }
 
-        Gaussian posterior(const std::string agent) const
+        Gaussian posterior(const std::string &agent) const
         {
             return skills.at(agent).likelihood * skills.at(agent).backward * skills.at(agent).forward;
         }
@@ -385,19 +385,22 @@ namespace TTT
             {
                 std::vector<std::vector<Player>> teams = within_priors(event_idx);
                 std::vector<double> result = events[event_idx].result();
+                Event &event = events[event_idx];
                 Game game(teams, result, p_draw, weights);
                 for (int team_idx = 0; team_idx < events[event_idx].teams.size(); team_idx++)
                 {
+                    Team &team = event.teams[team_idx];
                     for (int item_idx = 0; item_idx < events[event_idx].teams[team_idx].items.size(); item_idx++)
                     {
-                        skills[events[event_idx].teams[team_idx].items[item_idx].name].likelihood = skills[events[event_idx].teams[team_idx].items[item_idx].name].likelihood / events[event_idx].teams[team_idx].items[item_idx].likelihood * game.likelihoods[team_idx][item_idx];
-                        events[event_idx].teams[team_idx].items[item_idx].likelihood = game.likelihoods[team_idx][item_idx];
+                        Item &item = team.items[item_idx];
+                        skills[item.name].likelihood = (skills[item.name].likelihood / item.likelihood) * game.likelihoods[team_idx][item_idx];
+                        item.likelihood = game.likelihoods[team_idx][item_idx];
                     }
                 }
                 events[event_idx].evidence = game.evidence;
             }
         }
-        Gaussian forward_prior_out(const std::string agent) const
+        Gaussian forward_prior_out(const std::string &agent) const
         {
             return skills.at(agent).forward * skills.at(agent).likelihood;
         }

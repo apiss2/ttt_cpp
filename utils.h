@@ -33,7 +33,7 @@ namespace TTT
 
     double erfc(const double x)
     {
-        double z = std::abs(x);
+        double z = std::fabs(x);
         double t = 1.0 / (1.0 + z / 2.0);
         double a = -0.82215223 + t * 0.17087277;
         double b = 1.48851587 + t * a;
@@ -171,7 +171,7 @@ namespace TTT
     double pdf(const double x, const double mu, const double sigma)
     {
         double normalizer = std::pow(sqrt2pi * sigma, -1);
-        double functional = std::exp(-std::pow(x - mu, 2) / (2 * sigma * sigma));
+        double functional = std::exp(-std::pow(x - mu, 2) / (2 * std::pow(sigma, 2)));
         return normalizer * functional;
     }
 
@@ -266,7 +266,7 @@ namespace TTT
     */
     double compute_margin(const double p_draw, const double sd)
     {
-        return std::abs(ppf(0.5 - p_draw / 2, 0.0, sd));
+        return std::fabs(ppf(0.5 - p_draw / 2, 0.0, sd));
     }
 
     /*

@@ -98,13 +98,7 @@ namespace TTT
                 _p = Player(Gaussian(self.mu, self.sigma), self.beta, self.gamma)
                 self.agents[agent_name] = Agent(_p, Ninf, -inf,)
 
-        def run(
-            self,
-            games: List[List[List[str]]],
-            results: List[List[float]],
-            times: List[float],
-            weights: List[float],
-        ):
+        def run(self):
             if self.use_specific_time:
                 # 時間の指定がある場合には時間順
                 order = sortperm(times)
@@ -115,7 +109,7 @@ namespace TTT
             idx_from = 0
             while idx_from < len(games):
                 if self.use_specific_time:
-                    idx_to, time = times[order[idx_from]]
+                    idx_to, time = idx_from + 1, times[order[idx_from]]
                 else:
                     idx_to, time = idx_from + 1, idx_from+ 1
 
@@ -182,10 +176,10 @@ namespace TTT
     {
     public:
         History(
-            std::vector<std::vector<std::vector<std::string>>> _games,
-            std::vector<std::vector<double>> _results = {},
-            std::vector<double> _weights = {},
-            std::vector<double> _times = {},
+            const std::vector<std::vector<std::vector<std::string>>> &_games,
+            const std::vector<std::vector<double>> &_results = {},
+            const std::vector<double> &_weights = {},
+            const std::vector<double> &_times = {},
             double _mu = MU,
             double _sigma = SIGMA,
             double _beta = BETA,
@@ -375,7 +369,7 @@ namespace TTT
         }
         void update_agents(const Batch &batch, double time)
         {
-            for (auto [agent, s] : batch.skills)
+            for (auto& [agent, s] : batch.skills)
             {
                 this->agents[agent].last_time = this->use_specific_time ? time : inf;
                 this->agents[agent].message = batch.forward_prior_out(agent);

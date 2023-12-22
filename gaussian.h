@@ -175,7 +175,7 @@ namespace TTT
             }
             else
             {
-                return Gaussian(M * this->mu, std::abs(M) * this->sigma);
+                return Gaussian(M * this->mu, std::fabs(M) * this->sigma);
             }
         }
 
@@ -243,11 +243,11 @@ namespace TTT
         }
         bool isapprox(const Gaussian M, const double tol = 1e-4) const 
         {
-            return (std::abs(this->mu - M.mu) < tol) && (std::abs(this->sigma - M.sigma) < tol);
+            return (std::fabs(this->mu - M.mu) < tol) && (std::fabs(this->sigma - M.sigma) < tol);
         }
         std::pair<double, double> delta(const Gaussian M) const
         {
-            return std::make_pair(std::abs(this->mu - M.mu), std::abs(this->sigma - M.sigma));
+            return std::make_pair(std::fabs(this->mu - M.mu), std::fabs(this->sigma - M.sigma));
         }
 
         double mu;
