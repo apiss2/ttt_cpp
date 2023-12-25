@@ -37,7 +37,7 @@ namespace TTT
 
         Gaussian performance() const
         {
-            return Gaussian(prior.mu, sqrt(prior.sigma * prior.sigma + beta * beta));
+            return Gaussian(prior.mu, std::sqrt(prior.sigma * prior.sigma + beta * beta));
         }
 
         Gaussian prior;

@@ -301,19 +301,29 @@ namespace TTT
 
     */
 
-    std::vector<int> sortperm(const std::vector<double> xs, const bool reverse = false)
+    std::vector<int> sortperm(const std::vector<double> &xs, const bool reverse = false)
     {
-        std::vector<std::pair<double, int>> sorted_list;
+        std::vector<std::pair<double, int>> sorted_list(xs.size());
         for (int i = 0; i < xs.size(); i++)
         {
-            sorted_list.push_back(std::make_pair(xs[i], i));
+            sorted_list[i] = std::make_pair(xs[i], i);
         }
-        std::sort(sorted_list.begin(), sorted_list.end(), [](std::pair<double, int> t1, std::pair<double, int> t2)
-                  { return t1.first < t2.first; });
-        std::vector<int> result;
+
+        if (reverse)
+        {
+            std::sort(sorted_list.rbegin(), sorted_list.rend(), [](std::pair<double, int> t1, std::pair<double, int> t2)
+                      { return t1.first < t2.first; });
+        }
+        else
+        {
+            std::sort(sorted_list.begin(), sorted_list.end(), [](std::pair<double, int> t1, std::pair<double, int> t2)
+                      { return t1.first < t2.first; });
+        }
+
+        std::vector<int> result(xs.size());
         for (int i = 0; i < sorted_list.size(); i++)
         {
-            result.push_back(sorted_list[i].second);
+            result[i] = sorted_list[i].second;
         }
         return result;
     }

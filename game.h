@@ -60,7 +60,7 @@ namespace TTT
                 step = max_tuple(step, self.team_variables[e].likelihood_win.delta(likelihood_win))
                 # 更新_3
                 self.team_variables[e].likelihood_win = likelihood_win
-    
+
         def init_result(self, result: List[float], teams: List[List[Player]]):
             if len(result) > 0:
                 return result
@@ -74,19 +74,19 @@ namespace TTT
                 _p = team_performance(teams[idx], weights)
                 ret.append(TeamVariable(_p, Ninf, Ninf, Ninf))
             return ret
-    
+
         def init_diff_messages(self, teams: List[List[Player]]) -> List[DiffMessage]:
             ret: List[DiffMessage] = list()
             for idx in range(len(teams) > 1):
                 ret.append(DiffMessage(teams[idx].prior - teams[idx + 1].prior, Ninf))
             return ret
-    
+
         def init_tie(self) -> List[bool]:
             ret: List[bool] = list()
             for e in range(len(self.diff_messages)):
                 ret.append(self.result[self.order[e]] == self.result[self.order[e + 1]])
             return ret
-    
+
         def init_margin(self, p_draw, teams: List[List[Player]]):
             ret: List[float] = list()
             for idx in range(len(self.diff_messages)):
@@ -109,63 +109,47 @@ namespace TTT
             const double p_draw)
         {
             evidence = 1.0;
-            init_result(_result, _teams);
+            result = _result;
             order = sortperm(result);
             init_team_variables(order, _teams, _weights);
             init_diff_messages();
             init_tie();
             init_margin(p_draw, _teams);
         }
-        void init_result(const std::vector<double> &_result, const std::vector<std::vector<Player>> &teams)
-        {
-            if (_result.size() > 0)
-            {
-                this->result = _result;
-            }
-            else
-            {
-                std::vector<double> new_result;
-                for (int i = teams.size() - 1; i >= 0; i--)
-                {
-                    new_result.push_back(i);
-                }
-                this->result = new_result;
-            }
-        }
         void init_team_variables(const std::vector<int> &order, const std::vector<std::vector<Player>> &teams, const std::vector<double> &weights)
         {
-            team_variables.clear();
+            team_variables.resize(teams.size());
             for (int team_idx = 0; team_idx < teams.size(); team_idx++)
             {
                 int idx = order[team_idx];
                 Gaussian _p = team_performance(teams[idx], weights);
-                team_variables.push_back(TeamVariable(_p, Ninf, Ninf, Ninf));
+                team_variables[team_idx] = TeamVariable(_p, Ninf, Ninf, Ninf);
             }
         }
         void init_diff_messages()
         {
-            diff_messages.clear();
+            diff_messages.resize(team_variables.size() - 1);
             for (int idx = 0; idx < team_variables.size() - 1; idx++)
             {
-                diff_messages.push_back(DiffMessage(team_variables[idx].prior - team_variables[idx + 1].prior, Ninf));
+                diff_messages[idx] = DiffMessage(team_variables[idx].prior - team_variables[idx + 1].prior, Ninf);
             }
         }
         void init_tie()
         {
-            tie.clear();
+            tie.resize(diff_messages.size());
             for (int e = 0; e < diff_messages.size(); e++)
             {
-                tie.push_back(result[order[e]] == result[order[e + 1]]);
+                tie[e] = (result[order[e]] == result[order[e + 1]]);
             }
         }
         void init_margin(const double p_draw, const std::vector<std::vector<Player>> &teams)
         {
-            margins.clear();
+            margins.resize(diff_messages.size());
             for (int idx = 0; idx < diff_messages.size(); idx++)
             {
                 if (p_draw == 0.0)
                 {
-                    margins.push_back(0.0);
+                    margins[idx] = 0.0;
                 }
                 else
                 {
@@ -180,7 +164,7 @@ namespace TTT
                         _sum2 += std::pow(teams[order[idx + 1]][i].beta, 2);
                     }
                     double _m = compute_margin(p_draw, std::sqrt(_sum1 + _sum2));
-                    margins.push_back(_m);
+                    margins[idx] = _m;
                 }
             }
         }
@@ -226,10 +210,10 @@ namespace TTT
                 // 更新_1
                 diff_messages[e].prior = team_variables[e].posterior_win() - team_variables[e + 1].posterior_lose();
                 // このクラスのevidence値を更新
-                if (i == 0 && e == diff_messages.size() - 1)
+                if ((i == 0) && (e == (diff_messages.size() - 1)))
                 {
                     partial_evidence(e);
-                }
+                };
                 // 更新_2
                 diff_messages[e].likelihood = approx(diff_messages[e].prior, margins[e], tie[e]) / diff_messages[e].prior;
                 // 更新_3 (stepも更新)
@@ -245,7 +229,7 @@ namespace TTT
         std::vector<DiffMessage> diff_messages;
         std::vector<bool> tie;
         std::vector<double> margins;
-    }; //GraphicalModel;
+    }; // GraphicalModel;
 
     /*
     class Game(object):
@@ -387,7 +371,7 @@ namespace TTT
             {
                 throw std::invalid_argument("len(teams) != len(result)");
             }
-            if (p_draw <= 0 || p_draw >= 1)
+            if ((p_draw <= 0) || (p_draw >= 1))
             {
                 throw std::invalid_argument("0 < p_draw < 1");
             }
@@ -411,8 +395,11 @@ namespace TTT
             double margin = grm.margins[0];
             bool tie = grm.tie[0];
 
-            auto[mu_trunc, sigma_trunc] = trunc(diffmsg.mu, diffmsg.sigma, margin, tie);
-            double delta_div = diffmsg.sigma * diffmsg.sigma * mu_trunc - sigma_trunc * sigma_trunc * diffmsg.mu;
+            double mu_trunc, sigma_trunc;
+            std::tie(mu_trunc, sigma_trunc) = trunc(diffmsg.mu, diffmsg.sigma, margin, tie);
+            double sigma_trunc_2 = std::pow(sigma_trunc, 2);
+            double diff_sigma_2 = std::pow(diffmsg.sigma, 2);
+            double delta_div = diff_sigma_2 * mu_trunc - sigma_trunc_2 * diffmsg.mu;
             double theta_div_pow2;
             if (diffmsg.sigma == sigma_trunc)
             {
@@ -420,17 +407,18 @@ namespace TTT
             }
             else
             {
-                double _div = diffmsg.sigma * diffmsg.sigma - sigma_trunc * sigma_trunc;
+                double _div = diff_sigma_2 - sigma_trunc_2;
                 delta_div = delta_div / _div;
-                theta_div_pow2 = (sigma_trunc * sigma_trunc * diffmsg.sigma * diffmsg.sigma) / _div;
-            }
+                theta_div_pow2 = (sigma_trunc_2 * diff_sigma_2) / _div;
+            };
 
             // チームごとに計算
             std::vector<std::vector<Gaussian>> res;
             for (int team_idx = 0; team_idx < grm.team_variables.size(); team_idx++)
             {
-                std::vector<Gaussian> team;
-                for (int j = 0; j < teams[grm.order[team_idx]].size(); j++)
+                std::vector<Player> &players = teams[grm.order[team_idx]];
+                std::vector<Gaussian> team(players.size());
+                for (int j = 0; j < players.size(); j++)
                 {
                     double mu;
                     if (diffmsg.sigma == sigma_trunc)
@@ -439,7 +427,7 @@ namespace TTT
                     }
                     else
                     {
-                        double _mu = teams[grm.order[team_idx]][j].prior.mu;
+                        double _mu = players[j].prior.mu;
                         double _d = delta_div - diffmsg.mu;
                         if (team_idx == 1)
                         {
@@ -450,9 +438,9 @@ namespace TTT
                             mu = _mu + _d;
                         }
                     }
-                    double _team_sigma = teams[grm.order[team_idx]][j].prior.sigma * teams[grm.order[team_idx]][j].prior.sigma;
-                    double sigma_analitico = std::sqrt(theta_div_pow2 + diffmsg.sigma * diffmsg.sigma - _team_sigma);
-                    team.push_back(Gaussian(mu, sigma_analitico));
+                    double _team_sigma = std::pow(players[j].prior.sigma, 2);
+                    double sigma_analitico = std::sqrt(theta_div_pow2 + diff_sigma_2 - _team_sigma);
+                    team[j] = Gaussian(mu, sigma_analitico);
                 }
                 res.push_back(team);
             }
@@ -494,10 +482,10 @@ namespace TTT
             evidence = grm.evidence;
             grm.team_variables[0].likelihood_win = grm.team_variables[1].posterior_lose() + grm.diff_messages[0].likelihood;
             grm.team_variables[grm.team_variables.size() - 1].likelihood_lose = grm.team_variables[grm.team_variables.size() - 2].posterior_win() - grm.diff_messages[grm.diff_messages.size() - 1].likelihood;
-            std::vector<Gaussian> ret;
+            std::vector<Gaussian> ret(grm.team_variables.size());
             for (int e = 0; e < grm.team_variables.size(); e++)
             {
-                ret.push_back(grm.team_variables[grm.order[e]].likelihood());
+                ret[e] = grm.team_variables[grm.order[e]].likelihood();
             }
             return ret;
         }
@@ -520,7 +508,7 @@ namespace TTT
                 likelihoods.clear();
                 for (int e = 0; e < teams.size(); e++)
                 {
-                    std::vector<Gaussian> likelihood_e;
+                    std::vector<Gaussian> likelihood_e(teams[e].size());
                     for (int i = 0; i < teams[e].size(); i++)
                     {
                         double _lh;
@@ -533,7 +521,7 @@ namespace TTT
                             _lh = inf;
                         }
                         Gaussian lh = (m_t_ft[e] - performance(e).exclude(teams[e][i].prior * weights[i])) * _lh;
-                        likelihood_e.push_back(lh);
+                        likelihood_e[i] = lh;
                     }
                     likelihoods.push_back(likelihood_e);
                 }

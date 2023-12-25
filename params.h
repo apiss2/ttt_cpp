@@ -1,7 +1,9 @@
 #pragma once
 
 #include <iostream>
+#define _USE_MATH_DEFINES
 #include <math.h>
+
 /*
 BETA = 1.0
 MU = 0.0

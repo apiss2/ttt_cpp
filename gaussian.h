@@ -115,8 +115,7 @@ namespace TTT
     class Gaussian
     {
     public:
-        Gaussian() = default; // Default constructor
-        Gaussian(const double _mu, const double _sigma)
+        Gaussian(const double _mu = TTT::MU, const double _sigma = TTT::SIGMA)
         {
             if (_sigma >= 0.0)
             {
@@ -130,41 +129,33 @@ namespace TTT
         }
         double tau() const
         {
-            if (this->sigma == 0.0)
+            if (sigma > 0.0)
             {
-                return inf;
-            }
-            else if (std::isinf(this->sigma))
-            {
-                return 0.0;
+                return this->mu * std::pow(sigma, -2);
             }
             else
             {
-                return this->mu * std::pow(this->sigma * this->sigma, -2);
+                return inf;
             }
         }
         double pi() const
         {
-            if (this->sigma == 0.0)
-            {
-                return inf;
-            }
-            else if (std::isinf(this->sigma))
-            {
-                return 0.0;
-            }
-            else
+            if (sigma > 0.0)
             {
                 return std::pow(this->sigma, -2);
             }
+            else
+            {
+                return inf;
+            }
         }
-        Gaussian operator+(const Gaussian M) const
+        Gaussian operator+(const Gaussian& M) const
         {
-            return Gaussian(this->mu + M.mu, std::sqrt(this->sigma * this->sigma + M.sigma * M.sigma));
+            return Gaussian(mu + M.mu, std::sqrt(sigma * sigma + M.sigma * M.sigma));
         }
         Gaussian operator-(const Gaussian& M) const
         {
-            return Gaussian(this->mu - M.mu, std::sqrt(this->sigma * this->sigma + M.sigma * M.sigma));
+            return Gaussian(mu - M.mu, std::sqrt(sigma * sigma + M.sigma * M.sigma));
         }
 
         Gaussian operator*(const double M) const
@@ -175,44 +166,42 @@ namespace TTT
             }
             else
             {
-                return Gaussian(M * this->mu, std::fabs(M) * this->sigma);
+                return Gaussian(M * mu, std::abs(M) * sigma);
             }
         }
 
-        Gaussian operator*(const Gaussian M) const
+        Gaussian operator*(const Gaussian& M) const
         {
+            double _mu, _sigma;
             if (this->sigma == 0.0)
             {
-                double _mu = this->mu / ((this->sigma * this->sigma / (M.sigma * M.sigma)) + 1);
-                double _sigma = 0.0;
-                return Gaussian(_mu, _sigma);
+                _mu = mu / ((std::pow(sigma, 2) / std::pow(M.sigma, 2)) + 1);
+                _sigma = 0.0;
             }
             else if (M.sigma == 0.0)
             {
-                double _mu = M.mu / ((M.sigma * M.sigma / (this->sigma * this->sigma)) + 1);
-                double _sigma = 0.0;
-                return Gaussian(_mu, _sigma);
+                _mu = M.mu / ((std::pow(M.sigma, 2) / std::pow(sigma, 2)) + 1);
+                _sigma = 0.0;
             }
             else
             {
-                double _tau = this->tau() + M.tau();
-                double _pi = this->pi() + M.pi();
-                auto[_mu, _sigma] = mu_sigma(_tau, _pi);
-                return Gaussian(_mu, _sigma);
+                double _tau = tau() + M.tau();
+                double _pi = pi() + M.pi();
+                std::tie(_mu, _sigma) = mu_sigma(_tau, _pi);
             }
-        }
-
-        Gaussian operator/(const Gaussian M)
-        {
-            double _tau = this->tau() - M.tau();
-            double _pi = this->pi() - M.pi();
-            double _mu, _sigma;
-            _mu = _tau / _pi;
-            _sigma = std::sqrt(1 / _pi);
             return Gaussian(_mu, _sigma);
         }
 
-        Gaussian operator=(const Gaussian M)
+        Gaussian operator/(const Gaussian& M)
+        {
+            double _tau = tau() - M.tau();
+            double _pi = pi() - M.pi();
+            double _mu, _sigma;
+            std::tie(_mu, _sigma) = mu_sigma(_tau, _pi);
+            return Gaussian(_mu, _sigma);
+        }
+
+        Gaussian operator=(const Gaussian& M)
         {
             this->mu = M.mu;
             this->sigma = M.sigma;
@@ -221,11 +210,22 @@ namespace TTT
 
         bool operator==(const Gaussian M) const
         {
-            return this->mu == M.mu && this->sigma == M.sigma;
+            if (std::isinf(sigma) && std::isinf(M.sigma))
+            {
+                if (std::abs(mu - M.mu) < 1e-4)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            return (std::abs(mu - M.mu) < 1e-4) && (std::abs(sigma - M.sigma) < 1e-4);
         }
         bool operator!=(const Gaussian M) const
         {
-            return this->mu != M.mu || this->sigma != M.sigma;
+            return !(*this == M);
         }
         Gaussian operator+=(const Gaussian M)
         {
@@ -241,7 +241,7 @@ namespace TTT
         {
             return Gaussian(this->mu - M.mu, std::sqrt(this->sigma * this->sigma - M.sigma * M.sigma));
         }
-        bool isapprox(const Gaussian M, const double tol = 1e-4) const 
+        bool isapprox(const Gaussian M, const double tol = 1e-4) const
         {
             return (std::fabs(this->mu - M.mu) < tol) && (std::fabs(this->sigma - M.sigma) < tol);
         }

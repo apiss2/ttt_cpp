@@ -69,14 +69,14 @@ namespace TTT
                 # 結果がない場合には、ゲーム数分の結果を降順で作成
                 results = [[i for i in range(len(g))][::-1] for g in games]
             self.results = results
-            
+
         def init_times(games: List[List[List[str]]], times: List[float]):
             if len(times) > 0:
                 assert len(games) == len(times)
             else:
                 times = [i for i in range(len(games))]
             self.times = times
-            
+
         def init_weights(games: List[List[List[str]]], weights: List[float]):
             team_len = len(games[0][0])
             if (len(weights) > 0):
@@ -91,7 +91,7 @@ namespace TTT
                 for sub_list in inner_list:
                     result_set.update(sub_list)
             return result_set
-        
+
         def init_agents(self, games: List[List[List[str]]]):
             unique_agents = self.get_unique_agents_from_games(games)
             for agent_name in unique_agents:
@@ -191,9 +191,9 @@ namespace TTT
             this->beta = _beta;
             this->gamma = _gamma;
             this->p_draw = _p_draw;
-            if (p_draw <= 0 || p_draw >= 1)
+            if (p_draw < 0 || p_draw >= 1)
             {
-                throw std::invalid_argument("p_draw should be in (0, 1)");
+                throw std::invalid_argument("p_draw should be in [0, 1)");
             }
             this->use_specific_time = _times.size() > 0;
 
@@ -203,6 +203,8 @@ namespace TTT
             this->init_weights(_games, _weights);
             this->init_agents(_games);
         }
+        ~History() {}
+
         void init_games(const std::vector<std::vector<std::vector<std::string>>> &_games)
         {
             if (_games.size() == 0)
@@ -240,10 +242,15 @@ namespace TTT
                 std::vector<std::vector<double>> _results;
                 for (int i = 0; i < games.size(); i++)
                 {
-                    std::vector<double> inner_results;
-                    for (int j = games[i].size()-1; j >= 0; j--)
+                    size_t team_len = games[i].size();
+                    std::vector<double> inner_results(team_len);
+                    for (int j = 0; j < team_len; j++)
                     {
-                        inner_results.push_back((double)j);
+                        inner_results[j] = team_len - j - 1;
+                        if (team_len - j - 1 < 0)
+                        {
+                            throw std::invalid_argument("result should be non-negative");
+                        }
                     }
                     _results.push_back(inner_results);
                 }
@@ -262,10 +269,10 @@ namespace TTT
             }
             else
             {
-                std::vector<double> _t;
+                std::vector<double> _t(games.size());
                 for (int i = 0; i < games.size(); i++)
                 {
-                    _t.push_back((double)i);
+                    _t[i] = (double)i;
                 }
                 this->times = _t;
             }
@@ -283,20 +290,16 @@ namespace TTT
             }
             else
             {
-                std::vector<double> _w;
-                for (int i = 0; i < team_len; i++)
-                {
-                    _w.push_back(1.0);
-                }
+                std::vector<double> _w(team_len, 1.0);
                 this->weights = _w;
             }
         }
         std::set<std::string> get_unique_agents_from_games(const std::vector<std::vector<std::vector<std::string>>> &games)
         {
             std::set<std::string> result_set;
-            for (auto inner_list : games)
+            for (auto& inner_list : games)
             {
-                for (auto sub_list : inner_list)
+                for (auto& sub_list : inner_list)
                 {
                     result_set.insert(sub_list.begin(), sub_list.end());
                 }
@@ -326,7 +329,6 @@ namespace TTT
                 order = std::vector<int>(this->times.size());
                 std::iota(order.begin(), order.end(), 0);
             }
-
             int idx_from = 0;
             while (idx_from < this->times.size())
             {
@@ -340,7 +342,7 @@ namespace TTT
                 else
                 {
                     idx_to = idx_from + 1;
-                    time = idx_from + 1;
+                    time = idx_from + 1.;
                 }
 
                 // このイテレーションでどの範囲まで見るか決定する
@@ -350,51 +352,54 @@ namespace TTT
                 }
 
                 // 上記で決定した範囲の結果を取ってくる
-                std::vector<std::vector<std::vector<std::string>>> _games;
-                std::vector<std::vector<double>> _results;
+                std::vector<std::vector<std::vector<std::string>>> _games(idx_to - idx_from + 1);
+                std::vector<std::vector<double>> _results(idx_to - idx_from + 1);
                 for (int i = idx_from; i < idx_to; i++)
                 {
-                    _games.push_back(this->games[order[i]]);
-                    _results.push_back(this->results[order[i]]);
+                    _games[i] = this->games[order[i]];
+                    _results[i] = this->results[order[i]];
                 }
-
                 // バッチを作成
                 Batch batch(_games, _results, time, this->agents, this->p_draw, this->weights);
                 // agentsの更新
                 this->update_agents(batch, time);
                 // バッチを保存
-                this->batches.push_back(batch);
+                std::pair<double, std::map<std::string, std::pair<double, double>>> a(time, batch.get_result());
+                this->batches.push_back(a);
                 idx_from = idx_to;
             }
         }
         void update_agents(const Batch &batch, double time)
         {
-            for (auto& [agent, s] : batch.skills)
+            for (auto skill : batch.skills)
             {
+                std::string agent = skill.first;
                 this->agents[agent].last_time = this->use_specific_time ? time : inf;
                 this->agents[agent].message = batch.forward_prior_out(agent);
             }
         }
-        std::map<std::string, std::vector<std::pair<double, Gaussian>>> get_results()
+        std::map<std::string, std::vector<std::tuple<double, double, double>>> get_results()
         {
-            std::map<std::string, std::vector<std::pair<double, Gaussian>>> res;
-            for (auto b : this->batches)
+            std::map<std::string, std::vector<std::tuple<double, double, double>>> res;
+            for (auto batch : this->batches)
             {
-                for (auto [agent, s] : b.skills)
+                double time = batch.first;
+                for (auto [agent, p] : batch.second)
                 {
-                    std::pair<double, Gaussian> t_p(b.time, b.posterior(agent));
-                    if (res.find(agent) != res.end())
+                    std::tuple<double, double, double> v = {time, p.first, p.second};
+                    if (res.count(agent) > 0)
                     {
-                        res[agent].push_back(t_p);
+                        res[agent].push_back(v);
                     }
                     else
                     {
-                        res[agent] = {t_p};
+                        res[agent] = {v};
                     }
                 }
             }
             return res;
         }
+
         double mu;
         double sigma;
         double beta;
@@ -402,7 +407,7 @@ namespace TTT
         double p_draw;
         bool use_specific_time;
         std::vector<std::vector<std::vector<std::string>>> games;
-        std::vector<Batch> batches;
+        std::vector<std::pair<double, std::map<std::string, std::pair<double, double>>>> batches;
         std::map<std::string, Agent> agents;
         std::vector<std::vector<double>> results;
         std::vector<double> times;

@@ -29,10 +29,12 @@ namespace TTT
             self.likelihood = likelihood
             self.elapsed = elapsed
     */
-    struct Skill
+    class Skill
     {
+    public:
         Skill(Gaussian _f = Ninf, Gaussian _b = Ninf, Gaussian _l = Ninf, double _e = 0)
             : forward(_f), backward(_b), likelihood(_l), elapsed(_e) {}
+        ~Skill() {}
 
         Gaussian forward;
         Gaussian backward;
@@ -57,9 +59,10 @@ namespace TTT
     class Agent
     {
     public:
-        Agent() = default; // Default constructor
-        Agent(Player p, Gaussian m = Ninf, bool l = false)
+        Agent() = default;
+        Agent(Player p, Gaussian m, double l)
             : player(p), message(m), last_time(l) {}
+        ~Agent() {}
 
         Gaussian receive(const double elapsed) const
         {
@@ -75,7 +78,7 @@ namespace TTT
 
         Player player;
         Gaussian message;
-        bool last_time;
+        double last_time;
     };
 
     /*
@@ -86,12 +89,12 @@ namespace TTT
                 agents[a].last_time = -inf
     */
 
-    void clean(std::map<std::string, Agent> &agents, bool last_time = false)
+    void clean(std::map<std::string, Agent> &agents, double last_time = -inf)
     {
         for (auto &a : agents)
         {
             a.second.message = Ninf;
-            if (last_time)
+            if (last_time != 0.0)
             {
                 a.second.last_time = -inf;
             }
@@ -104,15 +107,16 @@ namespace TTT
             self.name = name
             self.likelihood = likelihood
     */
-   class Item
-   {
+    class Item
+    {
     public:
         Item(const std::string &_name, const Gaussian &_likelihood)
-              : name(_name), likelihood(_likelihood) {}
-    
-         std::string name;
-         Gaussian likelihood;
-   };
+            : name(_name), likelihood(_likelihood) {}
+        ~Item() {}
+
+        std::string name;
+        Gaussian likelihood;
+    };
     /*
     class Team(object):
         def __init__(self, items: List[Item], output: float):
@@ -124,6 +128,7 @@ namespace TTT
     public:
         Team(const std::vector<Item> &_items, const double &_output)
             : items(_items), output(_output) {}
+        ~Team() {}
 
         std::vector<Item> items;
         double output;
@@ -143,15 +148,18 @@ namespace TTT
     class Event
     {
     public:
-        Event(const std::vector<Team> &teams, const double &evidence, const std::vector<double> &weights)
+        Event(const std::vector<Team>&teams, const double evidence, const std::vector<double> weights)
             : teams(teams), evidence(evidence), weights(weights) {}
+        ~Event() {}
 
         std::vector<double> result() const
         {
-            std::vector<double> res;
+            std::vector<double> res(teams.size());
+            int i = 0;
             for (auto &team : teams)
             {
-                res.push_back(team.output);
+                res[i] = team.output;
+                i++;
             }
             return res;
         }
@@ -297,6 +305,19 @@ namespace TTT
             init_events(_games, _results);
             iteration();
         }
+        // デストラクタ
+        ~Batch() {};
+
+        std::map<std::string, std::pair<double, double>> get_result()
+        {
+            std::map<std::string, std::pair<double, double>> res;
+            for (auto [agent, skill] : skills)
+            {
+                Gaussian _p = skill.likelihood * skill.backward * skill.forward;
+                res[agent] = std::make_pair(_p.mu, _p.sigma);
+            }
+            return res;
+        }
 
         std::set<std::string> get_agent_set(const std::vector<std::vector<std::vector<std::string>>> &games)
         {
@@ -328,24 +349,17 @@ namespace TTT
             for (int event_idx = 0; event_idx < games.size(); event_idx++)
             {
                 std::vector<Team> event_teams;
-                for (int team_idx = 0; team_idx < games[event_idx].size(); team_idx++)
+                const std::vector<std::vector<std::string>> &thisgame = games[event_idx];
+                for (int team_idx = 0; team_idx < thisgame.size(); team_idx++)
                 {
+                    size_t thisgame_size = thisgame[team_idx].size();
                     std::vector<Item> team_items;
-                    for (int a = 0; a < games[event_idx][team_idx].size(); a++)
+                    for (int a = 0; a < thisgame_size; a++)
                     {
-                        team_items.push_back(Item(games[event_idx][team_idx][a], Ninf));
+                        team_items[a] = Item(thisgame[team_idx][a], Ninf);
                     }
-                    double team_result;
-                    if (results.size() > 0)
-                    {
-                        team_result = results[event_idx][team_idx];
-                    }
-                    else
-                    {
-                        team_result = games[event_idx].size() - team_idx - 1;
-                    }
-                    Team team(team_items, team_result);
-                    event_teams.push_back(team);
+                    double team_result = results[event_idx][team_idx];
+                    event_teams.push_back(Team(team_items, team_result));
                 }
                 Event event(event_teams, 0.0, weights);
                 events.push_back(event);
@@ -359,7 +373,7 @@ namespace TTT
 
         Player within_prior(const Item &item) const
         {
-            const Player& r = this->agents.at(item.name).player;
+            const Player &r = this->agents.at(item.name).player;
             double mu, sigma;
             Gaussian _p = posterior(item.name) / item.likelihood;
             Player res(_p, r.beta, r.gamma);
@@ -370,10 +384,10 @@ namespace TTT
             std::vector<std::vector<Player>> ret_list;
             for (auto &team : events[event_idx].teams)
             {
-                std::vector<Player> inner_list;
-                for (auto &item : team.items)
+                std::vector<Player> inner_list(team.items.size());
+                for (int i=0; i<team.items.size(); i++)
                 {
-                    inner_list.push_back(within_prior(item));
+                    inner_list[i] = within_prior(team.items[i]);
                 }
                 ret_list.push_back(inner_list);
             }
@@ -384,20 +398,21 @@ namespace TTT
             for (int event_idx = _from; event_idx < events.size(); event_idx++)
             {
                 std::vector<std::vector<Player>> teams = within_priors(event_idx);
-                std::vector<double> result = events[event_idx].result();
                 Event &event = events[event_idx];
+                std::vector<double> result = event.result();
                 Game game(teams, result, p_draw, weights);
-                for (int team_idx = 0; team_idx < events[event_idx].teams.size(); team_idx++)
+                for (int team_idx = 0; team_idx < event.teams.size(); team_idx++)
                 {
                     Team &team = event.teams[team_idx];
-                    for (int item_idx = 0; item_idx < events[event_idx].teams[team_idx].items.size(); item_idx++)
+                    for (int item_idx = 0; item_idx < team.items.size(); item_idx++)
                     {
                         Item &item = team.items[item_idx];
-                        skills[item.name].likelihood = (skills[item.name].likelihood / item.likelihood) * game.likelihoods[team_idx][item_idx];
-                        item.likelihood = game.likelihoods[team_idx][item_idx];
+                        Gaussian &gameitem = game.likelihoods[team_idx][item_idx];
+                        skills[item.name].likelihood = (skills[item.name].likelihood / item.likelihood) * gameitem;
+                        item.likelihood = gameitem;
                     }
                 }
-                events[event_idx].evidence = game.evidence;
+                event.evidence = game.evidence;
             }
         }
         Gaussian forward_prior_out(const std::string &agent) const
