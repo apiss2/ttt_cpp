@@ -356,7 +356,7 @@ namespace TTT
                     std::vector<Item> team_items;
                     for (int a = 0; a < thisgame_size; a++)
                     {
-                        team_items[a] = Item(thisgame[team_idx][a], Ninf);
+                        team_items.push_back(Item(thisgame[team_idx][a], Ninf));
                     }
                     double team_result = results[event_idx][team_idx];
                     event_teams.push_back(Team(team_items, team_result));

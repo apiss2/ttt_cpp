@@ -110,7 +110,7 @@ namespace TTT
         {
             evidence = 1.0;
             result = _result;
-            order = sortperm(result);
+            order = sortperm(result, true);
             init_team_variables(order, _teams, _weights);
             init_diff_messages();
             init_tie();

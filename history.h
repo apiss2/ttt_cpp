@@ -215,6 +215,10 @@ namespace TTT
             int team_len = _games[0][0].size();
             for (auto game : _games)
             {
+                if (game.size() < 2)
+                {
+                    throw std::invalid_argument("len(teams) < 2");
+                }
                 for (auto team : game)
                 {
                     if (team.size() != team_len)
@@ -352,12 +356,12 @@ namespace TTT
                 }
 
                 // 上記で決定した範囲の結果を取ってくる
-                std::vector<std::vector<std::vector<std::string>>> _games(idx_to - idx_from + 1);
-                std::vector<std::vector<double>> _results(idx_to - idx_from + 1);
+                std::vector<std::vector<std::vector<std::string>>> _games;
+                std::vector<std::vector<double>> _results;
                 for (int i = idx_from; i < idx_to; i++)
                 {
-                    _games[i] = this->games[order[i]];
-                    _results[i] = this->results[order[i]];
+                    _games.push_back(this->games[order[i]]);
+                    _results.push_back(this->results[order[i]]);
                 }
                 // バッチを作成
                 Batch batch(_games, _results, time, this->agents, this->p_draw, this->weights);

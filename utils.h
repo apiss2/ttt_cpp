@@ -309,15 +309,18 @@ namespace TTT
             sorted_list[i] = std::make_pair(xs[i], i);
         }
 
+        auto comparator = [](const std::pair<double, int> &a, const std::pair<double, int> &b) -> bool
+        {
+            return a.first < b.first;
+        };
+
         if (reverse)
         {
-            std::sort(sorted_list.rbegin(), sorted_list.rend(), [](std::pair<double, int> t1, std::pair<double, int> t2)
-                      { return t1.first < t2.first; });
+            std::sort(sorted_list.rbegin(), sorted_list.rend(), comparator);
         }
         else
         {
-            std::sort(sorted_list.begin(), sorted_list.end(), [](std::pair<double, int> t1, std::pair<double, int> t2)
-                      { return t1.first < t2.first; });
+            std::sort(sorted_list.begin(), sorted_list.end(), comparator);
         }
 
         std::vector<int> result(xs.size());
